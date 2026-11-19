@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/PixelArtStudio.Core/PixelArtStudio.Core.csproj" />
+    <Project Path="src/PixelArtStudio/PixelArtStudio.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/PixelArtStudio.Tests/PixelArtStudio.Tests.csproj" />
+  </Folder>
+</Solution>
