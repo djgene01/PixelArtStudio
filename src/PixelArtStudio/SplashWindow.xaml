@@ -1,0 +1,51 @@
+<Window x:Class="PixelArtStudio.SplashWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Width="720" Height="400" WindowStyle="None" ResizeMode="NoResize" ShowInTaskbar="False"
+        Topmost="True" WindowStartupLocation="CenterScreen" UseLayoutRounding="True" SnapsToDevicePixels="True">
+    <Border BorderBrush="#FF3B2A6B" BorderThickness="2">
+        <Border.Background>
+            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                <GradientStop Color="#FF2B1B4D" Offset="0" />
+                <GradientStop Color="#FF161616" Offset="1" />
+            </LinearGradientBrush>
+        </Border.Background>
+        <Grid>
+            <!-- A few pixel stars. -->
+            <Canvas IsHitTestVisible="False">
+                <Canvas.Resources>
+                    <Style TargetType="Rectangle">
+                        <Setter Property="Width" Value="4" />
+                        <Setter Property="Height" Value="4" />
+                        <Setter Property="Fill" Value="#FFFFD23F" />
+                    </Style>
+                </Canvas.Resources>
+                <Rectangle Canvas.Left="372" Canvas.Top="40" />
+                <Rectangle Canvas.Left="640" Canvas.Top="70" Fill="White" />
+                <Rectangle Canvas.Left="420" Canvas.Top="330" Fill="White" />
+                <Rectangle Canvas.Left="680" Canvas.Top="300" />
+                <Rectangle Canvas.Left="30" Canvas.Top="30" Fill="White" />
+                <Rectangle Canvas.Left="36" Canvas.Top="352" />
+            </Canvas>
+
+            <Grid Margin="32">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <Image Grid.Column="0" Source="/Assets/pixel-the-pixie.png" Width="320" Height="320"
+                       RenderOptions.BitmapScalingMode="NearestNeighbor" VerticalAlignment="Center" />
+
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="28,0,0,0">
+                    <TextBlock Text="Pixel" FontSize="52" FontWeight="Bold" Foreground="#FF7CF2DC" />
+                    <TextBlock Text="Studio" FontSize="52" FontWeight="Bold" Foreground="White" Margin="0,-12,0,0" />
+                    <TextBlock Text="Pixel art and sprite animation" FontSize="15" Foreground="#FFB79BFF" Margin="2,8,0,0" />
+                    <TextBlock Text="with Pixel the Pixie" FontSize="15" Foreground="#FFFFD23F" Margin="2,2,0,0" />
+                    <ProgressBar IsIndeterminate="True" Height="6" Margin="2,36,0,0" Foreground="#FF7CF2DC" Background="#FF3B2A6B" BorderThickness="0" />
+                    <TextBlock x:Name="VersionText" FontSize="12" Foreground="#FFA0A0A0" Margin="2,10,0,0" />
+                </StackPanel>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Threading;
 using Microsoft.AspNetCore.Builder;
@@ -13,14 +14,23 @@ public partial class App : Application
 
     private WebApplication? _mcp;
 
-    protected override void OnStartup(StartupEventArgs e)
+    private static readonly TimeSpan MinSplashTime = TimeSpan.FromMilliseconds(2000);
+
+    protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
         DispatcherUnhandledException += OnUnhandledException;
 
+        var splash = new SplashWindow();
+        splash.Show();
+        await Dispatcher.Yield(DispatcherPriority.Render);   // let the splash paint before the main window loads
+        var clock = Stopwatch.StartNew();
+
         var window = new MainWindow();
         MainWindow = window;
+        if (clock.Elapsed < MinSplashTime) await Task.Delay(MinSplashTime - clock.Elapsed);
         window.Show();
+        splash.Close();
         if (e.Args.Length > 0) window.OpenFile(e.Args[0]);
         _ = StartMcpAsync(window.ViewModel);
     }

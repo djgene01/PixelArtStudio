@@ -108,6 +108,20 @@ You can also pass a file to open: `dotnet run --project src/PixelArtStudio -- sp
 - `src/PixelArtStudio`: the WPF app (MVVM with CommunityToolkit.Mvvm, Fluent dark theme). `MainViewModel` implements `IStudioEditor`, and tool calls run on the UI thread.
 - `tests/PixelArtStudio.Tests`: xUnit tests for the Core and MCP projects.
 
+## Installer
+
+Download `PixelStudio-<version>-x64.msi` from the [Releases](https://github.com/djgene01/PixelArtStudio/releases) page. It is self-contained, so no .NET runtime is needed, and it adds a Start menu shortcut and opens `.pxs` files.
+
+To build it yourself (needs the [WiX Toolset](https://wixtoolset.org) CLI and a Six Labors licence file, see below):
+```
+dotnet publish src/PixelArtStudio -c Release -r win-x64 --self-contained -p:Version=1.0.0 -p:SixLaborsLicenseFile=<path to sixlabors.lic> -o artifacts/publish
+wix build installer/Package.wxs -arch x64 -d Version=1.0.0 -d PublishDir=<full path to artifacts/publish> -o artifacts/PixelStudio-1.0.0-x64.msi
+```
+
+## Licence
+
+Pixel Studio is released under the [MIT licence](LICENSE).
+
 ## ImageSharp licence
 
 Image encoding and decoding use [SixLabors.ImageSharp](https://github.com/SixLabors/ImageSharp) 3.2.0, which is under the Six Labors Split License.
