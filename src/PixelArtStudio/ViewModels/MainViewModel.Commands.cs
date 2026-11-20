@@ -14,24 +14,24 @@ public sealed partial class MainViewModel
     // ---- Undo ----
 
     [RelayCommand(CanExecute = nameof(CanUndo))]
-    private void Undo()
-    {
-        FinishPendingEdits();
-        var entry = History.PeekUndo;
-        if (History.Undo(Document)) AfterHistoryStep(entry, "Undo");
-    }
+    private void Undo() => StepHistory(undo: true);
 
     private bool CanUndo() => History.CanUndo;
 
     [RelayCommand(CanExecute = nameof(CanRedo))]
-    private void Redo()
-    {
-        FinishPendingEdits();
-        var entry = History.PeekRedo;
-        if (History.Redo(Document)) AfterHistoryStep(entry, "Redo");
-    }
+    private void Redo() => StepHistory(undo: false);
 
     private bool CanRedo() => History.CanRedo;
+
+    /// <summary>Undoes or redoes one step. Returns the entry, or null when there was nothing to step.</summary>
+    private IUndoEntry? StepHistory(bool undo)
+    {
+        FinishPendingEdits();
+        var entry = undo ? History.PeekUndo : History.PeekRedo;
+        if (!(undo ? History.Undo(Document) : History.Redo(Document))) return null;
+        AfterHistoryStep(entry, undo ? "Undo" : "Redo");
+        return entry;
+    }
 
     // ---- Tools and colours ----
 

@@ -23,6 +23,8 @@ public partial class MainWindow : Window
         _vm.PropertyChanged += OnViewModelPropertyChanged;
     }
 
+    public MainViewModel ViewModel => _vm;
+
     public void OpenFile(string path) => _vm.OpenPath(path);
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)

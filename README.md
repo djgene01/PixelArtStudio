@@ -32,6 +32,46 @@ Narrated by Pixel the Pixi. [Download the MP4](docs/promo.mp4).
   - Animated GIF, APNG and lossless animated WebP.
   - Every format can be scaled 1x to 16x with nearest-neighbour sampling.
 
+## Claude (MCP)
+
+While it runs, the app hosts an [MCP](https://modelcontextprotocol.io) server at `http://127.0.0.1:47821/mcp`, so Claude can create sprites and animations in the open window. Claude's edits appear live, and each tool call is one step on the normal undo stack (Ctrl+Z works on them). The status bar shows `MCP: 127.0.0.1:47821`, or `MCP: off` if the server could not start (for example, when a second instance finds the port in use).
+
+The app must be running before Claude connects.
+
+- **Claude Code:** this repository includes `.mcp.json`, so Claude Code started in this folder offers the server. Anywhere else, run:
+  ```
+  claude mcp add --transport http pixel-art-studio http://127.0.0.1:47821/mcp
+  ```
+- **Claude Desktop:** add this to `claude_desktop_config.json` (it needs Node.js for `mcp-remote`):
+  ```json
+  {
+    "mcpServers": {
+      "pixel-art-studio": { "command": "npx", "args": ["-y", "mcp-remote", "http://127.0.0.1:47821/mcp"] }
+    }
+  }
+  ```
+
+Then ask, for example, "Create a 16x16 4-frame bouncing ball and export it as a GIF to C:\Sprites\ball.gif".
+
+| Tools | What they do |
+| --- | --- |
+| `get_state` | Size, layers, frames, durations, palette, active frame and layer, unsaved flag |
+| `new_sprite`, `open_file`, `save`, `export` | New sprite, open `.pxs` or an image, save `.pxs`, export PNG/BMP/PNG sequence/sprite sheet/GIF/APNG/WebP |
+| `draw` | A batch of pixels, lines, rectangles, ellipses, fills and clears as one undo step |
+| `paint_rows`, `get_pixels` | Write or read pixels as text rows with a character-to-colour legend |
+| `view_frame`, `view_animation` | PNG previews of one frame, or all frames side by side, for Claude to check its work |
+| `add_frame`, `delete_frame`, `move_frame`, `set_frame_duration` | Timeline editing (`add_frame` can duplicate a frame) |
+| `copy_cel`, `shift_cel` | Copy a cel to another frame or layer, or move its pixels |
+| `add_layer`, `duplicate_layer`, `delete_layer`, `move_layer`, `merge_down`, `set_layer` | Layer stack, name, visibility and opacity |
+| `resize_canvas`, `flip`, `rotate`, `set_palette` | Whole-sprite changes |
+| `set_active`, `undo`, `redo` | Show a frame or layer to the user; step the history |
+
+Notes:
+- Set the `PIXELARTSTUDIO_MCP_PORT` environment variable to use another port, and update the URL in your client to match.
+- There is no authentication. The server only listens on the loopback interface and refuses requests from browser pages on other origins, but any program on your computer can call it.
+- Tool calls never show dialogs. `new_sprite` and `open_file` refuse to replace a sprite with unsaved changes unless Claude passes `discard_changes`.
+- The app now needs the ASP.NET Core runtime (`Microsoft.AspNetCore.App`) as well as the Windows Desktop runtime.
+
 ## Shortcuts
 
 | Keys | Action |
@@ -64,8 +104,9 @@ You can also pass a file to open: `dotnet run --project src/PixelArtStudio -- sp
 ## Project layout
 
 - `src/PixelArtStudio.Core`: the model, drawing algorithms, undo history and file import/export. Plain `net10.0` with no WPF, so it is unit-tested.
-- `src/PixelArtStudio`: the WPF app (MVVM with CommunityToolkit.Mvvm, Fluent dark theme).
-- `tests/PixelArtStudio.Tests`: xUnit tests for the Core project.
+- `src/PixelArtStudio.Mcp`: the MCP server (official `ModelContextProtocol.AspNetCore` SDK, Streamable HTTP). Its tools work through the small `IStudioEditor` interface, so they are unit-tested without WPF.
+- `src/PixelArtStudio`: the WPF app (MVVM with CommunityToolkit.Mvvm, Fluent dark theme). `MainViewModel` implements `IStudioEditor`, and tool calls run on the UI thread.
+- `tests/PixelArtStudio.Tests`: xUnit tests for the Core and MCP projects.
 
 ## ImageSharp licence
 

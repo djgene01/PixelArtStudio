@@ -126,6 +126,13 @@ public static class ImageExporter
         }
     }
 
+    /// <summary>Encodes a buffer as a 32-bit PNG, e.g. for an in-memory preview.</summary>
+    public static void WritePng(PixelBuffer buffer, Stream stream)
+    {
+        using var image = ImageConvert.ToImage(buffer);
+        image.Save(stream, PngEncoder);
+    }
+
     private static readonly PngEncoder PngEncoder = new()
     {
         ColorType = PngColorType.RgbWithAlpha,

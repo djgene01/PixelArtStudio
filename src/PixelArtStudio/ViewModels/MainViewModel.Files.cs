@@ -95,12 +95,18 @@ public sealed partial class MainViewModel
             _dialogs.ShowError($"Could not save {Path.GetFileName(path)}.\n\n{ex.Message}");
             return false;
         }
+        AfterSave(path);
+        return true;
+    }
+
+    /// <summary>Bookkeeping after <paramref name="path"/> was written: name, path, clean marker and recent files.</summary>
+    private void AfterSave(string path)
+    {
         _documentName = StripExtension(path);
         FilePath = path;
         History.MarkSaved();
         AddRecent(path);
         StatusMessage = $"Saved {Path.GetFileName(path)}";
-        return true;
     }
 
     [RelayCommand]

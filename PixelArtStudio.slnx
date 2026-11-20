@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/PixelArtStudio.Core/PixelArtStudio.Core.csproj" />
+    <Project Path="src/PixelArtStudio.Mcp/PixelArtStudio.Mcp.csproj" />
     <Project Path="src/PixelArtStudio/PixelArtStudio.csproj" />
   </Folder>
   <Folder Name="/tests/">

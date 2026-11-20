@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\PixelArtStudio.Core\PixelArtStudio.Core.csproj" />
+    <ProjectReference Include="..\PixelArtStudio.Mcp\PixelArtStudio.Mcp.csproj" />
   </ItemGroup>
 
   <ItemGroup>

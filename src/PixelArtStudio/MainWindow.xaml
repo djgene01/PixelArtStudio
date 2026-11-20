@@ -135,6 +135,7 @@
                     <TextBlock Text="{Binding SizeText}" Margin="16,0,0,0" />
                     <TextBlock Text="{Binding FrameText}" Margin="16,0,0,0" />
                     <TextBlock Text="{Binding ZoomText}" Margin="16,0,0,0" />
+                    <TextBlock Text="{Binding McpStatus}" Margin="16,0,0,0" />
                 </StackPanel>
             </StatusBarItem>
         </StatusBar>
