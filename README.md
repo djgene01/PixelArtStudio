@@ -2,6 +2,14 @@
 
 A WPF (.NET 10) editor for pixel art, sprites and sprite animations.
 
+## Promo
+
+<video src="https://github.com/djgene01/PixelArtStudio/raw/main/docs/promo.mp4" controls muted width="720">
+  Your viewer can't play embedded video. <a href="docs/promo.mp4">Watch the promo (MP4)</a>.
+</video>
+
+Narrated by Pixel the Pixi. [Download the MP4](docs/promo.mp4).
+
 ## Features
 
 - **Drawing tools:** pencil, eraser, fill (contiguous or global), eyedropper, line, rectangle, ellipse (outline or filled), and rectangle select.
