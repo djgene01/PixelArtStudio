@@ -14,7 +14,7 @@ public sealed class DocumentTools(IStudioSession session)
     public const int MaxNewFrames = 256;
 
     [McpServerTool(Name = "get_state", ReadOnly = true)]
-    [Description("Returns the open sprite: size, name, file path, unsaved flag, active frame and layer, layers (bottom first), frame durations and palette.")]
+    [Description("Returns the open sprite: size, name, file path, unsaved flag, active frame and layer, layers (bottom first), frame durations, palette (index = slot) and colour cycles.")]
     public Task<string> GetState() => session.RunAsync(e =>
     {
         var doc = e.Document;
@@ -30,19 +30,21 @@ public sealed class DocumentTools(IStudioSession session)
             Layers = doc.Layers.Select((l, i) => new { Index = i, l.Name, l.Visible, l.Opacity }),
             Frames = doc.Frames.Select((f, i) => new { Index = i, f.DurationMs }),
             Palette = doc.Palette.Colors.Select(ColorUtil.ToHex),
+            Cycles = doc.Cycles.Select((c, i) => new { Index = i, c.Name, c.First, c.Last, c.StepMs, c.Reverse, c.Enabled }),
         });
     });
 
     [McpServerTool(Name = "new_sprite", Destructive = true)]
     [Description("Replaces the open sprite with a blank one (one layer, transparent). Fails if there are unsaved changes unless discard_changes is true.")]
     public Task<string> NewSprite(
-        [Description("Width in pixels, 1-1024.")] int width,
-        [Description("Height in pixels, 1-1024.")] int height,
+        [Description("Width in pixels, 1-4096.")] int width,
+        [Description("Height in pixels, 1-4096.")] int height,
         [Description("Number of blank frames, 1-256.")] int frames = 1,
         [Description("Drop unsaved changes in the open sprite.")] bool discard_changes = false)
     {
         CheckSize(width, height);
         if (frames < 1 || frames > MaxNewFrames) throw new McpException($"frames must be 1 to {MaxNewFrames} (got {frames}).");
+        CheckBudget(width, height, 1, frames);
 
         return session.RunAsync(e =>
         {
@@ -115,7 +117,8 @@ public sealed class DocumentTools(IStudioSession session)
         [Description("Last frame of the range (inclusive). Default: the last frame.")] int? last_frame = null,
         [Description("sprite_sheet columns; 0 means one row.")] int columns = 0,
         [Description("Animated formats: loop forever (true) or play once.")] bool loop = true,
-        [Description("sprite_sheet: also write a .json file with frame rectangles and durations.")] bool write_json = false)
+        [Description("sprite_sheet: also write a .json file with frame rectangles and durations.")] bool write_json = false,
+        [Description("Multi-frame formats: render colour cycling into the output (an image per cycle step, over one full loop).")] bool bake_cycles = false)
     {
         CheckAbsolute(path);
         var exportFormat = format.Trim().ToLowerInvariant() switch
@@ -150,16 +153,24 @@ public sealed class DocumentTools(IStudioSession session)
                 SheetColumns = columns,
                 Loop = loop,
                 WriteJson = write_json,
+                BakeCycles = bake_cycles,
             };
             return (e.Document.Clone(), opts);
         });
 
         try
         {
-            var files = await Task.Run(() => ImageExporter.Export(doc, path, options));
-            return "Exported:\n" + string.Join("\n", files);
+            var (files, truncated) = await Task.Run(() =>
+            {
+                var written = ImageExporter.Export(doc, path, options, out bool cut);
+                return (written, cut);
+            });
+            string note = truncated
+                ? $"\nThe colour cycling loop was longer than {Core.Drawing.CycleTimeline.MaxLoopMs / 1000} s or {Core.Drawing.CycleTimeline.MaxSegments} images, so it was cut short and will not loop seamlessly."
+                : "";
+            return "Exported:\n" + string.Join("\n", files) + note;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
             throw new McpException($"Export failed: {ex.Message}", ex);
         }

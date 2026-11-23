@@ -5,6 +5,10 @@ namespace PixelArtStudio.Core.History;
 public interface IUndoEntry
 {
     string Name { get; }
+
+    /// <summary>Approximate memory held by the entry, for the undo stack's byte budget.</summary>
+    long SizeBytes { get; }
+
     void Undo(SpriteDocument doc);
     void Redo(SpriteDocument doc);
 }

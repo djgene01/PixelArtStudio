@@ -35,6 +35,12 @@
 
         <CheckBox x:Name="LoopBox" Content="Loop forever" IsChecked="True" Margin="0,12,0,0" />
 
+        <StackPanel x:Name="BakePanel" Margin="0,12,0,0">
+            <CheckBox x:Name="BakeBox" Content="Bake colour cycling into the animation" IsChecked="True" />
+            <TextBlock Style="{StaticResource HintText}" TextWrapping="Wrap" Margin="0,4,0,0"
+                       Text="Adds an image each time a cycle steps, over one full loop of the frames and cycles (up to 60 s)." />
+        </StackPanel>
+
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
             <Button Content="Export..." IsDefault="True" Click="OnOk" MinWidth="88" Style="{StaticResource PrimaryButton}" />
             <Button Content="Cancel" IsCancel="True" MinWidth="88" Margin="8,0,0,0" />

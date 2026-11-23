@@ -21,6 +21,12 @@ public interface IStudioEditor
     /// <summary>Applies a structural change as a single whole-document undo step.</summary>
     void EditDocument(string name, Action<SpriteDocument> change);
 
+    /// <summary>
+    /// Applies a change to palette, colour cycles, layer properties or frame durations as a single undo step.
+    /// It must not change pixels or the frame and layer layout.
+    /// </summary>
+    void EditMeta(string name, Action<SpriteDocument> change);
+
     /// <summary>Replaces the open document and clears the history.</summary>
     void ReplaceDocument(SpriteDocument doc, string? path, string name);
 

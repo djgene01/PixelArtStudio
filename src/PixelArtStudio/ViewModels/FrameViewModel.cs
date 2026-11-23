@@ -3,7 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace PixelArtStudio.ViewModels;
 
-/// <summary>One timeline cell. Its <see cref="Thumbnail"/> is the full-size flattened frame (also used for onion skin and preview).</summary>
+/// <summary>One timeline cell. Its <see cref="Thumbnail"/> is the flattened frame, shrunk to at most 256 px (also used for the preview).</summary>
 public sealed partial class FrameViewModel : ObservableObject
 {
     [ObservableProperty]

@@ -1,3 +1,5 @@
+using System.Windows.Input;
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PixelArtStudio.Core.History;
 using PixelArtStudio.Core.Model;
@@ -47,10 +49,21 @@ public sealed partial class MainViewModel
     [RelayCommand]
     private void BrushSmaller() => BrushSize--;
 
+    /// <summary>Click selects one slot and picks it as the primary colour; Shift+click extends the selected range.</summary>
     [RelayCommand]
     private void PickSwatch(SwatchViewModel? swatch)
     {
-        if (swatch != null) PrimaryColor = swatch.Color;
+        if (swatch == null) return;
+        if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) && _swatchAnchor >= 0)
+        {
+            SelectSwatches(_swatchAnchor, swatch.Index, keepAnchor: true);
+            int count = _swatchLast - _swatchFirst + 1;
+            StatusMessage = $"Palette slots {_swatchFirst}-{_swatchLast} selected ({count} colours)." +
+                            (count >= 2 ? " Add a colour cycle to animate them." : "");
+            return;
+        }
+        SelectSwatches(swatch.Index, swatch.Index);
+        PrimaryColor = swatch.Color;
     }
 
     [RelayCommand]
@@ -64,24 +77,221 @@ public sealed partial class MainViewModel
     {
         uint color = _primary | 0xFF000000;
         if (Document.Palette.Colors.Contains(color)) return;
-        ApplyStructural("Add palette colour", d => d.Palette.Colors.Add(color), thumbnails: false);
+        ApplyStructural("Add palette colour", d => d.Palette.Colors.Add(color), thumbnails: false, pixels: false);
+        SelectSwatches(Document.Palette.Colors.Count - 1, Document.Palette.Colors.Count - 1);
     }
 
     [RelayCommand]
     private void RemoveFromPalette()
     {
-        uint color = _primary | 0xFF000000;
-        if (!Document.Palette.Colors.Contains(color))
+        int slot = _swatchFirst >= 0 && _swatchFirst == _swatchLast ? _swatchFirst : Document.Palette.Colors.IndexOf(_primary | 0xFF000000);
+        if (slot < 0)
         {
             StatusMessage = "Pick a palette colour first, then remove it.";
             return;
         }
-        ApplyStructural("Remove palette colour", d => d.Palette.Colors.Remove(color), thumbnails: false);
+        if (Document.Palette.Colors.Count <= 1)
+        {
+            StatusMessage = "The palette needs at least one colour.";
+            return;
+        }
+        ClearSwatchSelection();
+        ApplyStructural("Remove palette colour", d =>
+        {
+            d.Palette.Colors.RemoveAt(slot);
+            // Cycles after the removed slot move down with their colours.
+            foreach (var c in d.Cycles)
+            {
+                if (c.First > slot) c.First--;
+                if (c.Last >= slot) c.Last--;
+            }
+        }, thumbnails: false, pixels: false);
+        WarnAboutCycles();
     }
 
     [RelayCommand]
-    private void ResetPalette() =>
-        ApplyStructural("Reset palette", d => d.Palette = Palette.CreateDefault(), thumbnails: false);
+    private void ResetPalette()
+    {
+        ClearSwatchSelection();
+        ApplyStructural("Reset palette", d => d.Palette = Palette.CreateDefault(), thumbnails: false, pixels: false);
+        WarnAboutCycles();
+    }
+
+    /// <summary>
+    /// Sets the selected palette slot to the primary colour. With <see cref="RecolourPixels"/>, every pixel of the
+    /// old colour is recoloured too (a static palette swap), in the same undo step.
+    /// </summary>
+    [RelayCommand]
+    private void ReplaceSwatch()
+    {
+        if (_swatchFirst < 0)
+        {
+            StatusMessage = "Click a palette swatch first, then set the primary colour to replace it with.";
+            return;
+        }
+        int slot = _swatchFirst;
+        uint oldColor = Document.Palette.Colors[slot], newColor = _primary | 0xFF000000;
+        if (oldColor == newColor)
+        {
+            StatusMessage = "The swatch already has the primary colour. Change the primary colour first.";
+            return;
+        }
+
+        if (RecolourPixels)
+        {
+            int changed = 0;
+            ApplyStructural("Replace colour", d =>
+            {
+                changed = d.ReplaceColor(oldColor, newColor);
+                d.Palette.Colors[slot] = newColor;
+            });
+            StatusMessage = $"Replaced {ColorUtil.ToHex(oldColor)} with {ColorUtil.ToHex(newColor)} in the palette and {changed} pixel(s).";
+        }
+        else
+        {
+            ApplyStructural("Replace palette colour", d => d.Palette.Colors[slot] = newColor, thumbnails: false, pixels: false);
+            StatusMessage = $"Palette slot {slot} is now {ColorUtil.ToHex(newColor)}. Tick Recolour pixels to change the art as well.";
+        }
+        SelectSwatches(slot, slot);
+        WarnAboutCycles();
+    }
+
+    [RelayCommand]
+    private void MoveSwatchLeft() => MoveSwatch(-1);
+
+    [RelayCommand]
+    private void MoveSwatchRight() => MoveSwatch(1);
+
+    private void MoveSwatch(int delta)
+    {
+        if (_swatchFirst < 0 || _swatchFirst != _swatchLast)
+        {
+            StatusMessage = "Click one palette swatch to move it.";
+            return;
+        }
+        int from = _swatchFirst, to = from + delta;
+        if (to < 0 || to >= Document.Palette.Colors.Count) return;
+        ApplyStructural("Move palette colour", d =>
+        {
+            var colors = d.Palette.Colors;
+            (colors[from], colors[to]) = (colors[to], colors[from]);
+        }, thumbnails: false, pixels: false);
+        SelectSwatches(to, to);
+    }
+
+    [RelayCommand]
+    private void AddCycleFromSelection()
+    {
+        if (_swatchFirst < 0 || _swatchLast - _swatchFirst < 1)
+        {
+            StatusMessage = "Select at least two palette swatches first: click one, then Shift+click another.";
+            return;
+        }
+        if (Document.Cycles.Count >= SpriteDocument.MaxCycles)
+        {
+            StatusMessage = $"A sprite can have at most {SpriteDocument.MaxCycles} colour cycles.";
+            return;
+        }
+        int first = _swatchFirst, last = _swatchLast;
+        var cycle = new ColorCycle { Name = $"Cycle {Document.Cycles.Count + 1}", First = first, Last = last };
+        ApplyStructural("Add colour cycle", d => d.Cycles.Add(cycle), thumbnails: false, pixels: false);
+        SelectedCycle = Cycles.LastOrDefault();
+        StatusMessage = $"Added {cycle.Name} over palette slots {first}-{last}." + (CyclePreview ? "" : " Press F6 or Play cycles to see it.");
+        WarnAboutCycles();
+    }
+
+    [RelayCommand]
+    private void DeleteCycle()
+    {
+        if (SelectedCycle is not { } selected || selected.Index >= Document.Cycles.Count)
+        {
+            StatusMessage = "Select a colour cycle in the list first.";
+            return;
+        }
+        int index = selected.Index;
+        ApplyStructural("Delete colour cycle", d => d.Cycles.RemoveAt(index), thumbnails: false, pixels: false);
+        SelectedCycle = null;
+    }
+
+    [RelayCommand]
+    private void ToggleCyclePreview() => CyclePreview = !CyclePreview;
+
+    /// <summary>Changes one colour cycle as an undoable step. Called by <see cref="CycleViewModel"/>.</summary>
+    internal void EditCycle(int index, string name, Action<ColorCycle> change, string? mergeKey = null)
+    {
+        if (_syncingLists || index >= Document.Cycles.Count) return;
+        ApplyStructural(name, d => change(d.Cycles[index]), mergeKey, syncLists: false, thumbnails: false, pixels: false);
+        Cycles[index].Sync(index, Document.Cycles[index]);
+        UpdateCycleTimer();
+    }
+
+    /// <summary>The selected row of the colour cycle list; selecting a cycle also selects its swatches.</summary>
+    public CycleViewModel? SelectedCycle
+    {
+        get => _selectedCycle;
+        set
+        {
+            if (!SetProperty(ref _selectedCycle, value) || value == null) return;
+            SelectSwatches(value.First, value.Last);
+        }
+    }
+
+    /// <summary>Replace also recolours every pixel of the old colour.</summary>
+    [ObservableProperty]
+    private bool _recolourPixels = true;
+
+    private CycleViewModel? _selectedCycle;
+    private int _swatchAnchor = -1, _swatchFirst = -1, _swatchLast = -1;
+
+    private void SelectSwatches(int anchor, int other, bool keepAnchor = false)
+    {
+        int count = Document.Palette.Colors.Count;
+        if (count == 0)
+        {
+            ClearSwatchSelection();
+            return;
+        }
+        anchor = Math.Clamp(anchor, 0, count - 1);
+        other = Math.Clamp(other, 0, count - 1);
+        if (!keepAnchor || _swatchAnchor < 0) _swatchAnchor = anchor;
+        (_swatchFirst, _swatchLast) = (Math.Min(anchor, other), Math.Max(anchor, other));
+        foreach (var s in PaletteColors) s.IsSelected = s.Index >= _swatchFirst && s.Index <= _swatchLast;
+    }
+
+    private void ClearSwatchSelection()
+    {
+        _swatchAnchor = _swatchFirst = _swatchLast = -1;
+        foreach (var s in PaletteColors) s.IsSelected = false;
+    }
+
+    /// <summary>Rebuilds the swatches when the palette changed, and refreshes selection and cycle markers.</summary>
+    private void SyncPalette()
+    {
+        var colors = Document.Palette.Colors;
+        if (!PaletteColors.Select(s => s.Color).SequenceEqual(colors))
+        {
+            PaletteColors.Clear();
+            for (int i = 0; i < colors.Count; i++) PaletteColors.Add(new SwatchViewModel(i, colors[i]));
+        }
+        if (_swatchLast >= colors.Count) ClearSwatchSelection();
+        foreach (var s in PaletteColors)
+        {
+            s.IsSelected = s.Index >= _swatchFirst && s.Index <= _swatchLast && _swatchFirst >= 0;
+            s.InCycle = Document.Cycles.Any(c => s.Index >= c.First && s.Index <= c.Last);
+        }
+    }
+
+    /// <summary>Warns in the status bar when a cycle range holds the same colour twice (only its first slot can cycle).</summary>
+    private void WarnAboutCycles()
+    {
+        foreach (var c in Document.Cycles)
+        {
+            var colors = Document.Palette.Colors.Skip(c.First).Take(c.Length).ToList();
+            if (colors.Distinct().Count() == colors.Count) continue;
+            StatusMessage = $"{c.Name} has the same colour in more than one slot; pixels of that colour follow its first slot only.";
+            return;
+        }
+    }
 
     [RelayCommand]
     private void LoadPalette()
@@ -92,7 +302,9 @@ public sealed partial class MainViewModel
         {
             var palette = Palette.Load(path);
             if (palette.Colors.Count == 0) throw new FormatException("The file has no colours.");
-            ApplyStructural("Load palette", d => d.Palette = palette, thumbnails: false);
+            ClearSwatchSelection();
+            ApplyStructural("Load palette", d => d.Palette = palette, thumbnails: false, pixels: false);
+            WarnAboutCycles();
         }
         catch (Exception ex)
         {
@@ -120,6 +332,7 @@ public sealed partial class MainViewModel
     [RelayCommand]
     private void AddFrame()
     {
+        if (!CheckBudget(Document.Width, Document.Height, Document.Layers.Count, Document.Frames.Count + 1)) return;
         int index = 0;
         ApplyStructural("Add frame", d => index = d.AddFrame(_activeFrame));
         ActiveFrameIndex = index;
@@ -128,6 +341,7 @@ public sealed partial class MainViewModel
     [RelayCommand]
     private void DuplicateFrame()
     {
+        if (!CheckBudget(Document.Width, Document.Height, Document.Layers.Count, Document.Frames.Count + 1)) return;
         int index = 0;
         ApplyStructural("Duplicate frame", d => index = d.DuplicateFrame(_activeFrame));
         ActiveFrameIndex = index;
@@ -182,7 +396,7 @@ public sealed partial class MainViewModel
             return;
         }
         int ms = Math.Clamp((int)Math.Round(1000 / fps), Frame.MinDurationMs, Frame.MaxDurationMs);
-        ApplyStructural("Set frame rate", d => d.Frames.ForEach(f => f.DurationMs = ms), thumbnails: false);
+        ApplyStructural("Set frame rate", d => d.Frames.ForEach(f => f.DurationMs = ms), thumbnails: false, pixels: false);
         StatusMessage = $"All frames set to {ms} ms";
     }
 
@@ -191,6 +405,7 @@ public sealed partial class MainViewModel
     [RelayCommand]
     private void AddLayer()
     {
+        if (!CheckBudget(Document.Width, Document.Height, Document.Layers.Count + 1, Document.Frames.Count)) return;
         int index = 0;
         ApplyStructural("Add layer", d => index = d.AddLayer(_activeLayer), thumbnails: false);
         ActiveLayerIndex = index;
@@ -199,6 +414,7 @@ public sealed partial class MainViewModel
     [RelayCommand]
     private void DuplicateLayer()
     {
+        if (!CheckBudget(Document.Width, Document.Height, Document.Layers.Count + 1, Document.Frames.Count)) return;
         int index = 0;
         ApplyStructural("Duplicate layer", d => index = d.DuplicateLayer(_activeLayer));
         ActiveLayerIndex = index;
@@ -247,13 +463,13 @@ public sealed partial class MainViewModel
     internal void SetLayerName(int index, string name)
     {
         if (_syncingLists || index >= Document.Layers.Count) return;
-        ApplyStructural("Rename layer", d => d.Layers[index].Name = name, syncLists: false, thumbnails: false);
+        ApplyStructural("Rename layer", d => d.Layers[index].Name = name, syncLists: false, thumbnails: false, pixels: false);
     }
 
     internal void SetLayerVisible(int index, bool visible)
     {
         if (_syncingLists || index >= Document.Layers.Count) return;
-        ApplyStructural(visible ? "Show layer" : "Hide layer", d => d.Layers[index].Visible = visible, syncLists: false);
+        ApplyStructural(visible ? "Show layer" : "Hide layer", d => d.Layers[index].Visible = visible, syncLists: false, pixels: false);
     }
 
     // ---- Image ----
@@ -263,6 +479,7 @@ public sealed partial class MainViewModel
     {
         FinishPendingEdits();
         if (_dialogs.AskResize(Document.Width, Document.Height) is not { } size) return;
+        if (!CheckBudget(size.Width, size.Height, Document.Layers.Count, Document.Frames.Count)) return;
         Selection = null;
         ApplyStructural("Resize canvas", d => d.Resize(size.Width, size.Height, size.Anchor));
         Zoom = Zoom;   // re-clamp for the new size
@@ -314,8 +531,8 @@ public sealed partial class MainViewModel
             // The lifted area was already cleared; dropping the floating pixels deletes them.
             _floating = null;
             var cel = Document.GetCel(floating.FrameIndex, floating.LayerIndex);
-            if (!cel.ContentEquals(floating.CelBefore))
-                History.Push(new CelEdit("Delete", floating.FrameIndex, floating.LayerIndex, floating.CelBefore, cel.Clone()));
+            var edit = new CelEdit("Delete", floating.FrameIndex, floating.LayerIndex, floating.CelBefore, cel);
+            if (!edit.IsEmpty) History.Push(edit);
             Selection = null;
             RefreshThumbnail(floating.FrameIndex);
             UpdateDisplayOverride();
@@ -382,11 +599,20 @@ public sealed partial class MainViewModel
     // ---- View ----
 
     [RelayCommand]
-    private void ZoomIn() => Zoom = ZoomLevels.FirstOrDefault(z => z > Zoom, ZoomLevels[^1]);
+    private void ZoomIn() => Zoom = ZoomLevels.FirstOrDefault(z => z > Zoom + 1e-9, ZoomLevels[^1]);
 
     [RelayCommand]
-    private void ZoomOut() => Zoom = ZoomLevels.LastOrDefault(z => z < Zoom, ZoomLevels[0]);
+    private void ZoomOut() => Zoom = ZoomLevels.LastOrDefault(z => z < Zoom - 1e-9, ZoomLevels[0]);
 
     [RelayCommand]
     private void ZoomFit() => Zoom = FitZoom();
+
+    [RelayCommand]
+    private void ZoomActual() => Zoom = 1;
+
+    [RelayCommand]
+    private void ToggleGrid() => ShowGrid = !ShowGrid;
+
+    [RelayCommand]
+    private void SetTileGrid(string? size) => TileGridSize = int.TryParse(size, out int n) ? n : 0;
 }

@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using PixelArtStudio.Core.Model;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Formats.Png;
@@ -13,7 +14,11 @@ namespace PixelArtStudio.Core.IO;
 public static class ProjectFile
 {
     public const string Extension = ".pxs";
-    public const int CurrentVersion = 1;
+
+    /// <summary>Version 2 adds colour cycles and sides over 1024 px. Plain sprites are still written as version 1.</summary>
+    public const int CurrentVersion = 2;
+
+    private const int LegacyMaxSize = 1024;
     private const string ManifestName = "manifest.json";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -50,14 +55,25 @@ public static class ProjectFile
     {
         using var zip = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true);
 
+        // Older builds refuse newer versions, so only write 2 when the file needs it.
+        bool needsV2 = doc.Cycles.Count > 0 || doc.Width > LegacyMaxSize || doc.Height > LegacyMaxSize;
         var manifest = new Manifest
         {
-            Version = CurrentVersion,
+            Version = needsV2 ? CurrentVersion : 1,
             Width = doc.Width,
             Height = doc.Height,
             Layers = doc.Layers.Select(l => new LayerEntry { Name = l.Name, Visible = l.Visible, Opacity = l.Opacity }).ToList(),
             Frames = doc.Frames.Select(f => new FrameEntry { DurationMs = f.DurationMs }).ToList(),
             Palette = doc.Palette.Colors.Select(ColorUtil.ToHex).ToList(),
+            Cycles = doc.Cycles.Count == 0 ? null : doc.Cycles.Select(c => new CycleEntry
+            {
+                Name = c.Name,
+                First = c.First,
+                Last = c.Last,
+                StepMs = c.StepMs,
+                Reverse = c.Reverse,
+                Enabled = c.Enabled,
+            }).ToList(),
         };
         using (var entry = zip.CreateEntry(ManifestName).Open())
             JsonSerializer.Serialize(entry, manifest, JsonOptions);
@@ -112,6 +128,20 @@ public static class ProjectFile
                     if (ColorUtil.TryParseHex(hex, out uint c)) palette.Colors.Add(c);
                 doc.Palette = palette;
             }
+
+            foreach (var c in manifest.Cycles ?? [])
+            {
+                doc.Cycles.Add(new ColorCycle
+                {
+                    Name = c.Name,
+                    First = c.First,
+                    Last = c.Last,
+                    StepMs = c.StepMs,
+                    Reverse = c.Reverse,
+                    Enabled = c.Enabled,
+                });
+            }
+            doc.NormalizeCycles();
             return doc;
         }
         catch (Exception ex) when (ex is JsonException or ArgumentException or ImageFormatException or UnknownImageFormatException)
@@ -147,6 +177,19 @@ public static class ProjectFile
         public List<LayerEntry> Layers { get; set; } = [];
         public List<FrameEntry> Frames { get; set; } = [];
         public List<string> Palette { get; set; } = [];
+
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public List<CycleEntry>? Cycles { get; set; }
+    }
+
+    private sealed class CycleEntry
+    {
+        public string Name { get; set; } = "Cycle";
+        public int First { get; set; }
+        public int Last { get; set; }
+        public int StepMs { get; set; } = ColorCycle.DefaultStepMs;
+        public bool Reverse { get; set; }
+        public bool Enabled { get; set; } = true;
     }
 
     private sealed class LayerEntry

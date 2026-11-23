@@ -189,7 +189,7 @@ public class McpToolTests : IDisposable
 
         await canvas.Rotate(clockwise: true);
         Assert.Equal((6, 10), (_studio.Document.Width, _studio.Document.Height));
-        await Assert.ThrowsAsync<McpException>(() => canvas.ResizeCanvas(2000, 2, "top_left"));
+        await Assert.ThrowsAsync<McpException>(() => canvas.ResizeCanvas(SpriteDocument.MaxSize + 1, 2, "top_left"));
         await Assert.ThrowsAsync<McpException>(() => canvas.ResizeCanvas(4, 4, "middle"));
 
         await canvas.SetPalette(["#000000", "#FF0000", "#FF0000"]);
@@ -274,6 +274,133 @@ public class McpToolTests : IDisposable
         var pixels = ImageImporter.LoadPixels(new MemoryStream(image.DecodedData.ToArray()));
         Assert.Equal((3 * 8 * 2, 2 * 8 * 2), (pixels.Width, pixels.Height));
         Assert.Contains("5 frame(s)", Assert.Single(blocks.OfType<TextContentBlock>()).Text);
+    }
+
+    [Fact]
+    public async Task ColorCycleTools_AddSetRemoveAndUndo()
+    {
+        var canvas = new CanvasTools(_studio);
+        await canvas.SetPalette(["#FF0000", "#00FF00", "#0000FF", "#FFFFFF"]);
+
+        string added = await canvas.AddColorCycle(0, 2, step_ms: 120, name: "Fire");
+        Assert.Contains("Fire", added);
+        var cycle = Assert.Single(_studio.Document.Cycles);
+        Assert.Equal((0, 2, 120, false), (cycle.First, cycle.Last, cycle.StepMs, cycle.Reverse));
+
+        await canvas.SetColorCycle(0, reverse: true, enabled: false);
+        Assert.True(_studio.Document.Cycles[0].Reverse);
+        Assert.False(_studio.Document.Cycles[0].Enabled);
+
+        await Assert.ThrowsAsync<McpException>(() => canvas.AddColorCycle(2, 2));      // one slot
+        await Assert.ThrowsAsync<McpException>(() => canvas.AddColorCycle(0, 9));      // past the palette
+        await Assert.ThrowsAsync<McpException>(() => canvas.AddColorCycle(0, 1, step_ms: 5));
+        await Assert.ThrowsAsync<McpException>(() => canvas.SetColorCycle(3, enabled: true));
+
+        await canvas.RemoveColorCycle(0);
+        Assert.Empty(_studio.Document.Cycles);
+        await new DocumentTools(_studio).Undo();
+        Assert.Single(_studio.Document.Cycles);
+
+        using var json = JsonDocument.Parse(await new DocumentTools(_studio).GetState());
+        Assert.Equal("Fire", json.RootElement.GetProperty("cycles")[0].GetProperty("name").GetString());
+    }
+
+    [Fact]
+    public async Task SetPalette_DropsCyclesThatNoLongerFit()
+    {
+        var canvas = new CanvasTools(_studio);
+        await canvas.AddColorCycle(10, 20);
+        string result = await canvas.SetPalette(["#000000", "#FFFFFF"]);
+
+        Assert.Contains("removed", result);
+        Assert.Empty(_studio.Document.Cycles);
+    }
+
+    [Fact]
+    public async Task ReplaceColor_RecoloursEveryCelAndThePalette()
+    {
+        var canvas = new CanvasTools(_studio);
+        await canvas.SetPalette(["#FF0000", "#00FF00"]);
+        await Drawing.Draw([Px(1, 1)]);
+        await new FrameTools(_studio).AddFrame(duplicate_of: 0);
+        int steps = _studio.History.Count;
+
+        string result = await canvas.ReplaceColor("#FF0000", "#0000FF");
+
+        Assert.Contains("2 pixel(s)", result);
+        Assert.Equal(Blue, Cel(0).Get(1, 1));
+        Assert.Equal(Blue, Cel(1).Get(1, 1));
+        Assert.Equal(Blue, _studio.Document.Palette.Colors[0]);
+        Assert.Equal(steps + 1, _studio.History.Count);
+
+        await new DocumentTools(_studio).Undo();
+        Assert.Equal(Red, Cel(1).Get(1, 1));
+        Assert.Equal(Red, _studio.Document.Palette.Colors[0]);
+        await Assert.ThrowsAsync<McpException>(() => canvas.ReplaceColor("#FF0000", "#FF0000"));
+    }
+
+    [Fact]
+    public async Task SizeAndBudgetLimits_AreEnforced()
+    {
+        var docs = new DocumentTools(_studio);
+        await Assert.ThrowsAsync<McpException>(() => docs.NewSprite(SpriteDocument.MaxSize + 1, 8));
+        var ex = await Assert.ThrowsAsync<McpException>(() => docs.NewSprite(4096, 4096, frames: 64));
+        Assert.Contains("too large", ex.Message);
+
+        await docs.NewSprite(2048, 2048, frames: 1, discard_changes: true);
+        Assert.Equal(2048, _studio.Document.Width);
+
+        var studio = new FakeStudio(4096, 4096);
+        for (int i = 0; i < 31; i++) studio.Document.AddLayer(i);   // 32 layers of 16M pixels = the whole budget
+        await Assert.ThrowsAsync<McpException>(() => new LayerTools(studio).AddLayer());
+        await Assert.ThrowsAsync<McpException>(() => new FrameTools(studio).AddFrame());
+    }
+
+    [Fact]
+    public async Task ViewFrame_RegionAndCycleTime()
+    {
+        var canvas = new CanvasTools(_studio);
+        await canvas.SetPalette(["#FF0000", "#00FF00"]);
+        await Drawing.Draw([Px(2, 2)]);
+        await canvas.AddColorCycle(0, 1);
+        var view = new ViewTools(_studio);
+
+        var region = (await view.ViewFrame(x: 2, y: 2, width: 3, height: 2)).ToList();
+        var pixels = ImageImporter.LoadPixels(new MemoryStream(Assert.Single(region.OfType<ImageContentBlock>()).DecodedData.ToArray()));
+        Assert.Equal((48, 32), (pixels.Width, pixels.Height));   // 3x2 at 16x
+        Assert.Equal(Red, pixels.Get(0, 0));
+        Assert.Contains("region (2, 2) 3x2", Assert.Single(region.OfType<TextContentBlock>()).Text);
+
+        var cycled = (await view.ViewFrame(x: 2, y: 2, width: 1, height: 1, scale: 1, cycle_time_ms: 100)).ToList();
+        var one = ImageImporter.LoadPixels(new MemoryStream(Assert.Single(cycled.OfType<ImageContentBlock>()).DecodedData.ToArray()));
+        Assert.Equal(0xFF00FF00u, one.Get(0, 0));
+        Assert.Equal(Red, Cel().Get(2, 2));
+    }
+
+    [Fact]
+    public async Task ViewFrame_ShrinksBigSprites()
+    {
+        var studio = new FakeStudio(3000, 10);
+        var blocks = (await new ViewTools(studio).ViewFrame()).ToList();
+
+        var pixels = ImageImporter.LoadPixels(new MemoryStream(Assert.Single(blocks.OfType<ImageContentBlock>()).DecodedData.ToArray()));
+        Assert.Equal((1500, 5), (pixels.Width, pixels.Height));
+        Assert.Contains("shrunk to 1/2", Assert.Single(blocks.OfType<TextContentBlock>()).Text);
+    }
+
+    [Fact]
+    public async Task Export_BakeCycles()
+    {
+        var canvas = new CanvasTools(_studio);
+        await canvas.SetPalette(["#FF0000", "#00FF00", "#0000FF"]);
+        await Drawing.Draw([Px(0, 0)]);
+        await canvas.AddColorCycle(0, 2);
+
+        string gif = Path.Combine(_dir, "cycle.gif");
+        await new DocumentTools(_studio).Export(gif, "gif", bake_cycles: true);
+
+        var doc = ImageImporter.LoadDocument(gif);
+        Assert.Equal(3, doc.Frames.Count);
     }
 
     [Fact]

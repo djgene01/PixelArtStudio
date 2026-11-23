@@ -42,11 +42,11 @@ public class PencilTool : ITool
         _before = null;
     }
 
-    private static RectI? DirtyRect(IToolContext ctx, int x0, int y0, int x1, int y1)
+    private static RectI DirtyRect(IToolContext ctx, int x0, int y0, int x1, int y1)
     {
         var options = ctx.PaintOptions;
-        if (options.MirrorX || options.MirrorY) return null;
-        return RectI.FromPoints(x0, y0, x1, y1).Inflate(options.BrushSize);
+        var cel = ctx.ActiveCel;
+        return DirtyRegion.WithMirrors(RectI.FromPoints(x0, y0, x1, y1).Inflate(options.BrushSize), options, cel.Width, cel.Height);
     }
 }
 

@@ -52,8 +52,9 @@ internal sealed class FakeStudio : IStudioEditor, IStudioSession
         var cel = Document.GetCel(frame, layer);
         var before = cel.Clone();
         draw(cel);
-        if (cel.ContentEquals(before)) return false;
-        History.Push(new CelEdit(name, frame, layer, before, cel.Clone()));
+        var edit = new CelEdit(name, frame, layer, before, cel);
+        if (edit.IsEmpty) return false;
+        History.Push(edit);
         return true;
     }
 
@@ -61,8 +62,15 @@ internal sealed class FakeStudio : IStudioEditor, IStudioSession
     {
         var before = Document.Clone();
         change(Document);
-        History.Push(new DocumentSnapshot(name, before, Document.Clone()));
+        History.Push(DocumentSnapshot.Capture(name, before, Document));
         ClampActive();
+    }
+
+    public void EditMeta(string name, Action<SpriteDocument> change)
+    {
+        var before = DocumentMeta.Capture(Document);
+        change(Document);
+        History.Push(new MetaEdit(name, before, DocumentMeta.Capture(Document)));
     }
 
     public void ReplaceDocument(SpriteDocument doc, string? path, string name)

@@ -13,16 +13,21 @@ Narrated by Pixel the Pixi. [Download the MP4](docs/promo.mp4).
 ## Features
 
 - **Drawing tools:** pencil, eraser, fill (contiguous or global), eyedropper, line, rectangle, ellipse (outline or filled), and rectangle select.
-- **Brush options:** brush sizes 1 to 8, horizontal and vertical mirror drawing, and Shift to constrain lines to 45° and shapes to squares or circles.
+- **Brush options:** brush sizes 1 to 64, horizontal and vertical mirror drawing, and Shift to constrain lines to 45° and shapes to squares or circles.
 - **Colour:** left button paints the primary colour, right button the secondary.
   - RGBA sliders and a hex box.
   - Palette: PICO-8 + DawnBringer 32 by default, and you can load or save `.hex` and `.gpl` files.
+  - Palette swap: replace a swatch with the primary colour, optionally recolouring every pixel of the old colour in one undo step. Reorder swatches with ◀ and ▶.
+- **Colour cycling:** the classic palette-swap animation (water, fire, waterfalls) without extra frames. See [Colour cycling](#colour-cycling).
 - **Layers:** visibility, opacity, rename, reorder, duplicate and merge down.
 - **Animation:**
   - Frame timeline with thumbnails and per-frame durations, plus a frame rate setting for all frames.
   - Playback on the canvas, a looping preview, and onion skin.
 - **Selection:** move a selection by dragging inside it; cut, copy and paste use the Windows clipboard (PNG with alpha).
-- **Canvas:** canvases from 1 to 1024 px per side; resize with an anchor, flip and rotate; 100 undo steps.
+- **Canvas:** canvases from 1 to 4096 px per side, up to 512M pixels over all frames and layers (about 2 GB); resize with an anchor, flip and rotate.
+  - Zoom from 12.5% to 6400%; Fit uses the window size, and toolbar zoom keeps the view centred.
+  - Pixel grid, plus an optional 8, 16 or 32 px tile grid.
+  - Up to 100 undo steps within 768 MB; strokes only store the area they changed.
 - **Native file format:** `.pxs`, a ZIP holding a JSON manifest and one PNG per cel.
 - **Open and import:** PNG, BMP, GIF and WebP. Animated GIF, APNG and WebP open as frames with their timings. Sprite sheets can be imported and sliced into frames.
 - **Export:**
@@ -31,6 +36,21 @@ Narrated by Pixel the Pixi. [Download the MP4](docs/promo.mp4).
   - Sprite sheet PNG, with an optional JSON file of frame rectangles and durations.
   - Animated GIF, APNG and lossless animated WebP.
   - Every format can be scaled 1x to 16x with nearest-neighbour sampling.
+  - Multi-frame formats can bake colour cycling into the output.
+
+## Colour cycling
+
+Colour cycling rotates the colours of a range of palette slots over time, so pixels painted in those colours appear to move.
+
+1. Put the colours of the effect next to each other in the palette, in order (for water, dark blue to white). Use Add, Replace and ◀ ▶ to arrange them.
+2. Paint with exactly those palette colours (opaque).
+3. Click the first swatch of the range, then Shift+click the last one. Click **Add from selection** under **Colour cycles**.
+4. Press F6 or **Play cycles** to see it move. Set each cycle's step time (ms per step), direction (Reverse) and whether it is enabled.
+
+Notes:
+- The pixels are not changed; cycling is applied on screen and when you export with **Bake colour cycling**, which adds an image each time a cycle steps, over one full loop of the frames and cycles (at most 60 s and 600 images).
+- Swatches in a cycle show a small white marker. If a range holds the same colour twice, pixels of that colour follow its first slot.
+- Cycles are saved in `.pxs` files. Files with cycles, or with a side over 1024 px, are written as format version 2, which older versions of the app cannot open.
 
 ## Claude (MCP)
 
@@ -55,15 +75,16 @@ Then ask, for example, "Create a 16x16 4-frame bouncing ball and export it as a 
 
 | Tools | What they do |
 | --- | --- |
-| `get_state` | Size, layers, frames, durations, palette, active frame and layer, unsaved flag |
-| `new_sprite`, `open_file`, `save`, `export` | New sprite, open `.pxs` or an image, save `.pxs`, export PNG/BMP/PNG sequence/sprite sheet/GIF/APNG/WebP |
+| `get_state` | Size, layers, frames, durations, palette, colour cycles, active frame and layer, unsaved flag |
+| `new_sprite`, `open_file`, `save`, `export` | New sprite, open `.pxs` or an image, save `.pxs`, export PNG/BMP/PNG sequence/sprite sheet/GIF/APNG/WebP (optionally baking colour cycling) |
 | `draw` | A batch of pixels, lines, rectangles, ellipses, fills and clears as one undo step |
 | `paint_rows`, `get_pixels` | Write or read pixels as text rows with a character-to-colour legend |
-| `view_frame`, `view_animation` | PNG previews of one frame, or all frames side by side, for Claude to check its work |
+| `view_frame`, `view_animation` | PNG previews of one frame (or a region, or at a colour cycling time), or all frames side by side, for Claude to check its work |
 | `add_frame`, `delete_frame`, `move_frame`, `set_frame_duration` | Timeline editing (`add_frame` can duplicate a frame) |
 | `copy_cel`, `shift_cel` | Copy a cel to another frame or layer, or move its pixels |
 | `add_layer`, `duplicate_layer`, `delete_layer`, `move_layer`, `merge_down`, `set_layer` | Layer stack, name, visibility and opacity |
-| `resize_canvas`, `flip`, `rotate`, `set_palette` | Whole-sprite changes |
+| `resize_canvas`, `flip`, `rotate`, `set_palette`, `replace_color` | Whole-sprite changes; `replace_color` is a palette swap across every frame and layer |
+| `add_color_cycle`, `set_color_cycle`, `remove_color_cycle` | Colour cycling over a range of palette slots |
 | `set_active`, `undo`, `redo` | Show a frame or layer to the user; step the history |
 
 Notes:
@@ -81,6 +102,9 @@ Notes:
 | X | Swap primary and secondary colour |
 | [ / ] | Brush size down / up |
 | , / . | Previous / next frame |
+| P or F5 | Play / pause |
+| F6 | Colour cycling on / off |
+| Arrow keys | Nudge the selection by one pixel |
 | Ctrl+Z, Ctrl+Y (Ctrl+Shift+Z) | Undo, redo |
 | Ctrl+X / C / V | Cut / copy / paste |
 | Ctrl+A, Ctrl+D, Esc | Select all, deselect |
@@ -88,8 +112,9 @@ Notes:
 | Enter | Place a pasted or moved selection |
 | Ctrl+N / O / S, Ctrl+Shift+S | New / open / save, save as |
 | Ctrl+E | Export |
-| Ctrl+wheel, Ctrl++ / Ctrl+-, Ctrl+0 | Zoom around the cursor, zoom in / out, fit |
-| Middle-drag or Space+drag | Pan |
+| Ctrl+wheel, Ctrl++ / Ctrl+-, Ctrl+0, Ctrl+1 | Zoom around the cursor, zoom in / out, fit, actual size |
+| Ctrl+G | Pixel grid on / off |
+| Middle-drag or Space+drag, Shift+wheel | Pan, scroll sideways |
 
 ## Build and run
 

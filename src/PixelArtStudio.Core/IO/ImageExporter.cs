@@ -46,11 +46,20 @@ public sealed class ExportOptions
 
     /// <summary>Write a JSON file next to the sprite sheet with frame rectangles and durations.</summary>
     public bool WriteJson { get; set; }
+
+    /// <summary>
+    /// Multi-frame formats: render colour cycling into the output, adding an image each time a cycle steps,
+    /// over one full loop (see <see cref="CycleTimeline"/>).
+    /// </summary>
+    public bool BakeCycles { get; set; }
 }
 
 public static class ImageExporter
 {
     public const int MaxScale = 16;
+
+    /// <summary>Most output pixels (images x width x height x scale²) a baked export may render.</summary>
+    public const long MaxBakedPixels = 1L << 30;
 
     public static string Extension(ExportFormat format) => format switch
     {
@@ -63,14 +72,40 @@ public static class ImageExporter
     public static bool IsAnimated(ExportFormat format) => format is ExportFormat.Gif or ExportFormat.Apng or ExportFormat.WebP;
 
     /// <summary>Exports the document and returns the paths of all files written.</summary>
-    public static IReadOnlyList<string> Export(SpriteDocument doc, string path, ExportOptions options)
+    public static IReadOnlyList<string> Export(SpriteDocument doc, string path, ExportOptions options) =>
+        Export(doc, path, options, out _);
+
+    /// <summary>Exports the document and returns the paths of all files written.</summary>
+    /// <param name="truncated">Set when baked colour cycling was cut short (see <see cref="CycleTimeline"/>).</param>
+    public static IReadOnlyList<string> Export(SpriteDocument doc, string path, ExportOptions options, out bool truncated)
     {
+        truncated = false;
         int scale = Math.Clamp(options.Scale, 1, MaxScale);
-        PixelBuffer Render(int frame) => Compositor.Scale(Compositor.Flatten(doc, frame), scale);
 
         int last = options.LastFrame < 0 ? doc.Frames.Count - 1 : Math.Min(options.LastFrame, doc.Frames.Count - 1);
         int first = Math.Clamp(options.FirstFrame, 0, last);
-        var range = Enumerable.Range(first, last - first + 1).ToList();
+
+        // Each image of a multi-frame export: a frame, the cycling time it is rendered at, and its duration.
+        List<CycleSegment> range;
+        bool bake = options.BakeCycles && options.Format is not (ExportFormat.Png or ExportFormat.Bmp) && doc.Cycles.Any(c => c.Enabled);
+        if (bake)
+        {
+            range = CycleTimeline.Build(doc, first, last, out truncated);
+            long pixels = range.Count * (long)doc.Width * doc.Height * scale * scale;
+            if (pixels > MaxBakedPixels)
+                throw new InvalidOperationException(
+                    $"Baking colour cycling needs {range.Count} images of {doc.Width * scale}x{doc.Height * scale} px, which is too much to render. " +
+                    "Lower the scale, export fewer frames, or use slower or shorter cycles.");
+        }
+        else
+        {
+            range = Enumerable.Range(first, last - first + 1).Select(f => new CycleSegment(f, 0, doc.Frames[f].DurationMs)).ToList();
+        }
+
+        PixelBuffer Render(int frame) => Compositor.Scale(Compositor.Flatten(doc, frame), scale);
+        PixelBuffer RenderSegment(CycleSegment s) => bake
+            ? Compositor.Scale(Compositor.Flatten(doc, s.Frame, cycle: ColorCycleMap.Build(doc.Palette, doc.Cycles, s.ElapsedMs)), scale)
+            : Render(s.Frame);
 
         switch (options.Format)
         {
@@ -91,7 +126,7 @@ public static class ImageExporter
                 for (int i = 0; i < range.Count; i++)
                 {
                     string file = Path.Combine(dir, $"{name}_{i + 1:D4}.png");
-                    using var image = ImageConvert.ToImage(Render(range[i]));
+                    using var image = ImageConvert.ToImage(RenderSegment(range[i]));
                     image.Save(file, PngEncoder);
                     written.Add(file);
                 }
@@ -100,14 +135,14 @@ public static class ImageExporter
 
             case ExportFormat.SpriteSheet:
             {
-                var frames = range.Select(Render).ToList();
+                var frames = range.Select(RenderSegment).ToList();
                 var sheet = SpriteSheet.Build(frames, options.SheetColumns, out var rects);
                 using (var image = ImageConvert.ToImage(sheet))
                     image.Save(path, PngEncoder);
                 if (!options.WriteJson) return [path];
 
                 string jsonPath = Path.ChangeExtension(path, ".json");
-                WriteSheetJson(jsonPath, Path.GetFileName(path), sheet, rects, range.Select(f => doc.Frames[f].DurationMs).ToList());
+                WriteSheetJson(jsonPath, Path.GetFileName(path), sheet, rects, range.Select(s => s.DurationMs).ToList());
                 return [path, jsonPath];
             }
 
@@ -115,7 +150,7 @@ public static class ImageExporter
             case ExportFormat.Apng:
             case ExportFormat.WebP:
             {
-                var frames = range.Select(f => (Pixels: Render(f), doc.Frames[f].DurationMs)).ToList();
+                var frames = range.Select(s => (Pixels: RenderSegment(s), s.DurationMs)).ToList();
                 using var image = BuildAnimation(frames, options.Format, options.Loop);
                 image.Save(path, EncoderFor(options.Format));
                 return [path];

@@ -45,11 +45,3 @@ public sealed class LayerViewModel(MainViewModel owner) : ObservableObject
         OnPropertyChanged(string.Empty);
     }
 }
-
-/// <summary>A palette colour.</summary>
-public sealed class SwatchViewModel(uint color)
-{
-    public uint Color { get; } = color;
-    public System.Windows.Media.Brush Brush { get; } = Services.BitmapHelper.ToBrush(color);
-    public string Hex => ColorUtil.ToHex(Color);
-}

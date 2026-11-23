@@ -45,7 +45,8 @@ public interface IToolContext
     uint SampleComposite(int x, int y);
 
     /// <summary>Shows <paramref name="preview"/> in place of the active cel, or clears the preview when null.</summary>
-    void SetPreview(PixelBuffer? preview);
+    /// <param name="dirty">Where the shown image changed; null redraws the whole canvas.</param>
+    void SetPreview(PixelBuffer? preview, RectI? dirty = null);
 
     /// <summary>The active cel changed inside <paramref name="region"/> (null = anywhere).</summary>
     void Invalidate(RectI? region);
@@ -56,6 +57,21 @@ public interface IToolContext
     void LiftSelection();
     void MoveFloating(int dx, int dy);
     void CommitFloating();
+}
+
+internal static class DirtyRegion
+{
+    /// <summary><paramref name="rect"/> plus its mirror images when Mirror X/Y is on.</summary>
+    public static RectI WithMirrors(RectI rect, in PaintOptions options, int width, int height)
+    {
+        var result = rect;
+        var mirroredX = rect with { X = width - rect.Right };
+        var mirroredY = rect with { Y = height - rect.Bottom };
+        if (options.MirrorX) result = result.Union(mirroredX);
+        if (options.MirrorY) result = result.Union(mirroredY);
+        if (options.MirrorX && options.MirrorY) result = result.Union(mirroredX with { Y = mirroredY.Y });
+        return result;
+    }
 }
 
 public interface ITool

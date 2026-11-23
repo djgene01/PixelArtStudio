@@ -57,9 +57,9 @@ public sealed class DialogService
         return dialog.ShowDialog() == true ? (dialog.FrameWidth, dialog.FrameHeight, dialog.DurationMs, dialog.SkipEmpty) : null;
     }
 
-    public ExportOptions? AskExport(int frameCount, int currentFrame)
+    public ExportOptions? AskExport(int frameCount, int currentFrame, bool hasCycles)
     {
-        var dialog = new ExportDialog(frameCount, currentFrame) { Owner = Owner };
+        var dialog = new ExportDialog(frameCount, currentFrame, hasCycles) { Owner = Owner };
         return dialog.ShowDialog() == true ? dialog.Options : null;
     }
 }

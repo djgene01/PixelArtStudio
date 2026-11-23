@@ -42,15 +42,15 @@ public sealed partial class MainViewModel : IStudioEditor
             throw;
         }
 
-        bool changed = !cel.ContentEquals(before);
-        if (changed)
+        var edit = new CelEdit(name, frame, layer, before, cel);
+        if (!edit.IsEmpty)
         {
-            History.Push(new CelEdit(name, frame, layer, before, cel.Clone()));
+            History.Push(edit);
             RefreshThumbnail(frame);
-            RaiseCanvasChanged(null);
+            RaiseCanvasChanged(frame == _activeFrame ? edit.Bounds : null);
         }
         StatusMessage = $"Claude: {name}";
-        return changed;
+        return !edit.IsEmpty;
     }
 
     void IStudioEditor.EditDocument(string name, Action<SpriteDocument> change)
@@ -59,6 +59,13 @@ public sealed partial class MainViewModel : IStudioEditor
         ApplyStructural(name, change);
         Selection = null;
         Zoom = Zoom;   // re-clamp in case the size changed
+        StatusMessage = $"Claude: {name}";
+    }
+
+    void IStudioEditor.EditMeta(string name, Action<SpriteDocument> change)
+    {
+        StopPlayback();
+        ApplyStructural(name, change, pixels: false);
         StatusMessage = $"Claude: {name}";
     }
 

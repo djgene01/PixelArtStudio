@@ -3,13 +3,17 @@ using PixelArtStudio.Core.Model;
 
 namespace PixelArtStudio.Tools;
 
-/// <summary>Drag-to-draw shape: previewed while dragging, committed on release. Shift constrains.</summary>
+/// <summary>
+/// Drag-to-draw shape: previewed while dragging, committed on release. Shift constrains. Each preview update
+/// only restores and redraws the area the shape covered, so it stays fast on big canvases.
+/// </summary>
 public abstract class ShapeTool : ITool
 {
     private bool _active;
     private int _x0, _y0, _x1, _y1;
     private uint _color;
     private PixelBuffer? _preview;
+    private RectI? _lastBounds;
 
     public abstract ToolKind Kind { get; }
     public abstract string Name { get; }
@@ -24,6 +28,13 @@ public abstract class ShapeTool : ITool
         _active = true;
         (_x0, _y0, _x1, _y1) = (input.X, input.Y, input.X, input.Y);
         _color = ctx.ColorFor(input.Button);
+
+        var cel = ctx.ActiveCel;
+        if (_preview == null || _preview.Width != cel.Width || _preview.Height != cel.Height)
+            _preview = cel.Clone();
+        else
+            _preview.CopyFrom(cel);
+        _lastBounds = null;
         UpdatePreview(ctx);
     }
 
@@ -43,7 +54,7 @@ public abstract class ShapeTool : ITool
         _active = false;
         var before = ctx.ActiveCel.Clone();
         Draw(ctx.ActiveCel, _x0, _y0, _x1, _y1, _color, ctx);
-        ctx.SetPreview(null);
+        ctx.SetPreview(null, _lastBounds);
         ctx.Commit(Name, before);
     }
 
@@ -51,18 +62,21 @@ public abstract class ShapeTool : ITool
     {
         if (!_active) return;
         _active = false;
-        ctx.SetPreview(null);
+        ctx.SetPreview(null, _lastBounds);
     }
 
     private void UpdatePreview(IToolContext ctx)
     {
         var cel = ctx.ActiveCel;
-        if (_preview == null || _preview.Width != cel.Width || _preview.Height != cel.Height)
-            _preview = cel.Clone();
-        else
-            _preview.CopyFrom(cel);
+        if (_preview == null) return;
+        if (_lastBounds is { } old) _preview.CopyFrom(cel, old);
+
         Draw(_preview, _x0, _y0, _x1, _y1, _color, ctx);
-        ctx.SetPreview(_preview);
+        var options = ctx.PaintOptions;
+        var bounds = DirtyRegion.WithMirrors(RectI.FromPoints(_x0, _y0, _x1, _y1).Inflate(options.BrushSize), options, cel.Width, cel.Height);
+        var dirty = _lastBounds is { } previous ? previous.Union(bounds) : bounds;
+        _lastBounds = bounds;
+        ctx.SetPreview(_preview, dirty);
     }
 }
 

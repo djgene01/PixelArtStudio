@@ -21,6 +21,11 @@ public partial class MainWindow : Window
         DataContext = _vm;
         PixelView.Editor = _vm;
         _vm.PropertyChanged += OnViewModelPropertyChanged;
+        Loaded += (_, _) =>
+        {
+            UpdateViewportSize();
+            _vm.ZoomFitCommand.Execute(null);
+        };
     }
 
     public MainViewModel ViewModel => _vm;
@@ -46,17 +51,30 @@ public partial class MainWindow : Window
             _vm.OpenRecentCommand.Execute(path);
     }
 
-    /// <summary>Clicking into a layer's name box selects that layer.</summary>
+    /// <summary>Clicking into a text box in a list row (layer or colour cycle) selects that row.</summary>
     private void OnLayerItemFocus(object sender, KeyboardFocusChangedEventArgs e)
     {
         if (sender is ListBoxItem item) item.IsSelected = true;
     }
 
+    private void OnCanvasScrollerSizeChanged(object sender, SizeChangedEventArgs e) => UpdateViewportSize();
+
+    private void UpdateViewportSize() => _vm.ViewportSize = new Size(CanvasScroller.ActualWidth, CanvasScroller.ActualHeight);
+
+    /// <summary>Ctrl+wheel zooms around the cursor; Shift+wheel scrolls sideways.</summary>
     private void OnCanvasWheel(object sender, MouseWheelEventArgs e)
     {
-        if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) return;
-        PixelView.ZoomAround(e.GetPosition(PixelView), e.Delta > 0);
-        e.Handled = true;
+        var modifiers = Keyboard.Modifiers;
+        if (modifiers.HasFlag(ModifierKeys.Control))
+        {
+            PixelView.ZoomAround(e.GetPosition(PixelView), e.Delta > 0);
+            e.Handled = true;
+        }
+        else if (modifiers.HasFlag(ModifierKeys.Shift))
+        {
+            CanvasScroller.ScrollToHorizontalOffset(CanvasScroller.HorizontalOffset - e.Delta);
+            e.Handled = true;
+        }
     }
 
     protected override void OnPreviewKeyUp(KeyEventArgs e)
@@ -108,6 +126,8 @@ public partial class MainWindow : Window
                 Key.OemPlus or Key.Add => _vm.ZoomInCommand,
                 Key.OemMinus or Key.Subtract => _vm.ZoomOutCommand,
                 Key.D0 or Key.NumPad0 => _vm.ZoomFitCommand,
+                Key.D1 or Key.NumPad1 => _vm.ZoomActualCommand,
+                Key.G when !typing => _vm.ToggleGridCommand,
                 _ => null,
             };
         }
@@ -141,8 +161,26 @@ public partial class MainWindow : Window
                 return;
             }
 
+            // Arrow keys nudge the selection while the canvas has focus (lists keep their own arrow navigation).
+            (int Dx, int Dy)? nudge = key switch
+            {
+                Key.Left => (-1, 0),
+                Key.Right => (1, 0),
+                Key.Up => (0, -1),
+                Key.Down => (0, 1),
+                _ => null,
+            };
+            bool canvasFocused = Keyboard.FocusedElement is null or Window || ReferenceEquals(Keyboard.FocusedElement, PixelView);
+            if (nudge is { } step && canvasFocused && _vm.NudgeSelection(step.Dx, step.Dy))
+            {
+                e.Handled = true;
+                return;
+            }
+
             command = key switch
             {
+                Key.P or Key.F5 => _vm.TogglePlayCommand,
+                Key.F6 => _vm.ToggleCyclePreviewCommand,
                 Key.X => _vm.SwapColorsCommand,
                 Key.OemOpenBrackets => _vm.BrushSmallerCommand,
                 Key.OemCloseBrackets => _vm.BrushBiggerCommand,

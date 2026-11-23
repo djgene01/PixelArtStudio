@@ -15,7 +15,12 @@ public enum Anchor
 /// </summary>
 public sealed class SpriteDocument
 {
-    public const int MaxSize = 1024;
+    public const int MaxSize = 4096;
+
+    /// <summary>Most pixels a document may hold over all cels (width x height x layers x frames), about 2 GB.</summary>
+    public const long MaxTotalPixels = 1L << 29;
+
+    public const int MaxCycles = 16;
 
     private SpriteDocument(int width, int height)
     {
@@ -30,10 +35,57 @@ public sealed class SpriteDocument
     public List<Frame> Frames { get; } = [];
     public Palette Palette { get; set; } = Palette.CreateDefault();
 
+    /// <summary>Colour cycles over palette slot ranges, applied when the sprite is shown or exported.</summary>
+    public List<ColorCycle> Cycles { get; } = [];
+
     public static void ValidateSize(int width, int height)
     {
         if (width < 1 || height < 1 || width > MaxSize || height > MaxSize)
             throw new ArgumentOutOfRangeException(nameof(width), $"Canvas size must be between 1 and {MaxSize} per side (got {width}x{height}).");
+    }
+
+    /// <summary>Whether a document of this shape stays within <see cref="MaxTotalPixels"/>.</summary>
+    public static bool FitsBudget(int width, int height, int layers, int frames) =>
+        (long)width * height * layers * frames <= MaxTotalPixels;
+
+    /// <summary>Whether this document stays within <see cref="MaxTotalPixels"/>.</summary>
+    public bool FitsBudget() => FitsBudget(Width, Height, Layers.Count, Frames.Count);
+
+    /// <summary>The message shown when a change would exceed <see cref="MaxTotalPixels"/>.</summary>
+    public static string BudgetMessage(int width, int height, int layers, int frames) =>
+        $"{width}x{height} with {layers} layer(s) and {frames} frame(s) is too large: a sprite can hold at most " +
+        $"{MaxTotalPixels / (1024 * 1024)}M pixels over all frames and layers (about 2 GB).";
+
+    /// <summary>Clamps every cycle to the palette and drops cycles with fewer than two slots.</summary>
+    public void NormalizeCycles()
+    {
+        int count = Palette.Colors.Count;
+        for (int i = Cycles.Count - 1; i >= 0; i--)
+        {
+            var cycle = Cycles[i];
+            int first = Math.Min(cycle.First, cycle.Last), last = Math.Max(cycle.First, cycle.Last);
+            (cycle.First, cycle.Last) = (Math.Max(first, 0), Math.Min(last, count - 1));
+            if (cycle.Last - cycle.First < 1) Cycles.RemoveAt(i);
+        }
+        while (Cycles.Count > MaxCycles) Cycles.RemoveAt(Cycles.Count - 1);
+    }
+
+    /// <summary>Replaces <paramref name="from"/> with <paramref name="to"/> in every cel. Returns the number of pixels changed.</summary>
+    public int ReplaceColor(uint from, uint to)
+    {
+        if (from == to) return 0;
+        int changed = 0;
+        foreach (var cel in AllCels())
+        {
+            var px = cel.Pixels;
+            for (int i = 0; i < px.Length; i++)
+            {
+                if (px[i] != from) continue;
+                px[i] = to;
+                changed++;
+            }
+        }
+        return changed;
     }
 
     /// <summary>A blank document with one layer and one frame.</summary>
@@ -208,9 +260,17 @@ public sealed class SpriteDocument
 
     public SpriteDocument Clone()
     {
+        var copy = ShallowCopy();
+        copy.Frames.AddRange(Frames.Select(f => f.Clone()));
+        return copy;
+    }
+
+    /// <summary>A copy of the size, palette, cycles and layers, with no frames.</summary>
+    internal SpriteDocument ShallowCopy()
+    {
         var copy = new SpriteDocument(Width, Height) { Palette = Palette.Clone() };
         copy.Layers.AddRange(Layers.Select(l => l.Clone()));
-        copy.Frames.AddRange(Frames.Select(f => f.Clone()));
+        copy.Cycles.AddRange(Cycles.Select(c => c.Clone()));
         return copy;
     }
 
@@ -225,6 +285,8 @@ public sealed class SpriteDocument
         Layers.AddRange(copy.Layers);
         Frames.Clear();
         Frames.AddRange(copy.Frames);
+        Cycles.Clear();
+        Cycles.AddRange(copy.Cycles);
     }
 
     private IEnumerable<PixelBuffer> AllCels() => Frames.SelectMany(f => f.Cels);

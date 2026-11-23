@@ -44,8 +44,42 @@ public sealed class PixelBuffer
         Array.Copy(source.Pixels, Pixels, Pixels.Length);
     }
 
+    /// <summary>Copies <paramref name="region"/> (clipped to both buffers) from a buffer of the same size.</summary>
+    public void CopyFrom(PixelBuffer source, RectI region)
+    {
+        if (source.Width != Width || source.Height != Height)
+            throw new ArgumentException("Buffers differ in size.", nameof(source));
+        region = region.Intersect(Bounds);
+        for (int y = region.Y; y < region.Bottom; y++)
+            Array.Copy(source.Pixels, y * Width + region.X, Pixels, y * Width + region.X, region.Width);
+    }
+
     public bool ContentEquals(PixelBuffer other) =>
         other.Width == Width && other.Height == Height && Pixels.AsSpan().SequenceEqual(other.Pixels);
+
+    /// <summary>The smallest rectangle holding every pixel that differs from <paramref name="other"/>, or null when equal.</summary>
+    public RectI? DiffBounds(PixelBuffer other)
+    {
+        if (other.Width != Width || other.Height != Height)
+            throw new ArgumentException("Buffers differ in size.", nameof(other));
+
+        int top = -1, bottom = -1, left = Width, right = -1;
+        for (int y = 0; y < Height; y++)
+        {
+            var a = Pixels.AsSpan(y * Width, Width);
+            var b = other.Pixels.AsSpan(y * Width, Width);
+            int first = a.CommonPrefixLength(b);
+            if (first == Width) continue;
+
+            int last = Width - 1;
+            while (a[last] == b[last]) last--;
+            if (top < 0) top = y;
+            bottom = y;
+            left = Math.Min(left, first);
+            right = Math.Max(right, last);
+        }
+        return top < 0 ? null : new RectI(left, top, right - left + 1, bottom - top + 1);
+    }
 
     public bool IsTransparent()
     {

@@ -41,6 +41,13 @@ internal static class ToolHelpers
             throw new McpException($"Canvas size must be 1 to {SpriteDocument.MaxSize} per side (got {width}x{height}).");
     }
 
+    /// <summary>Refuses a document shape over <see cref="SpriteDocument.MaxTotalPixels"/>.</summary>
+    public static void CheckBudget(int width, int height, int layers, int frames)
+    {
+        if (!SpriteDocument.FitsBudget(width, height, layers, frames))
+            throw new McpException(SpriteDocument.BudgetMessage(width, height, layers, frames));
+    }
+
     public static void CheckAbsolute(string path)
     {
         if (string.IsNullOrWhiteSpace(path) || !Path.IsPathFullyQualified(path))

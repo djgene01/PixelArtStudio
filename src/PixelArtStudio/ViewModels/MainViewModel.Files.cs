@@ -27,6 +27,7 @@ public sealed partial class MainViewModel
     {
         if (!ConfirmDiscardChanges()) return;
         if (_dialogs.AskNewDocument(Document.Width, Document.Height) is not { } size) return;
+        if (!CheckBudget(size.Width, size.Height, 1, 1)) return;
         LoadDocument(SpriteDocument.Create(size.Width, size.Height), null, "Untitled");
         StatusMessage = $"New {size.Width} x {size.Height} sprite";
     }
@@ -134,7 +135,8 @@ public sealed partial class MainViewModel
     {
         FinishPendingEdits();
         StopPlayback();
-        if (_dialogs.AskExport(Document.Frames.Count, _activeFrame) is not { } options) return;
+        bool hasCycles = Document.Cycles.Any(c => c.Enabled);
+        if (_dialogs.AskExport(Document.Frames.Count, _activeFrame, hasCycles) is not { } options) return;
 
         string ext = ImageExporter.Extension(options.Format);
         string label = options.Format switch
@@ -152,10 +154,15 @@ public sealed partial class MainViewModel
         StatusMessage = "Exporting...";
         try
         {
-            var files = await Task.Run(() => ImageExporter.Export(snapshot, path, options));
-            StatusMessage = files.Count == 1
+            var (files, truncated) = await Task.Run(() =>
+            {
+                var written = ImageExporter.Export(snapshot, path, options, out bool cut);
+                return (written, cut);
+            });
+            StatusMessage = (files.Count == 1
                 ? $"Exported {Path.GetFileName(files[0])}"
-                : $"Exported {files.Count} files to {Path.GetDirectoryName(path)}";
+                : $"Exported {files.Count} files to {Path.GetDirectoryName(path)}") +
+                (truncated ? ". The colour cycling loop was too long to bake in full, so it was cut short and will not loop seamlessly." : "");
         }
         catch (Exception ex)
         {

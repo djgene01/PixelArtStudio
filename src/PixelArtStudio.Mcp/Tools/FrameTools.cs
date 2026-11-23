@@ -20,6 +20,7 @@ public sealed class FrameTools(IStudioSession session)
             int? source = duplicate_of is { } d ? CheckIndex(d, count, "duplicate_of") : null;
             int anchor = after is { } a ? CheckIndex(a, count, "after") : source ?? e.ActiveFrame;
             int index = anchor + 1;
+            CheckBudget(e.Document.Width, e.Document.Height, e.Document.Layers.Count, count + 1);
             e.EditDocument(source != null ? "Duplicate frame" : "Add frame", doc =>
             {
                 if (source is { } s) doc.Frames.Insert(index, doc.Frames[s].Clone());
@@ -71,11 +72,11 @@ public sealed class FrameTools(IStudioSession session)
             string clamped = ms != duration_ms ? $" (clamped from {duration_ms})" : "";
             if (all_frames)
             {
-                e.EditDocument("Set frame rate", doc => doc.Frames.ForEach(fr => fr.DurationMs = ms));
+                e.EditMeta("Set frame rate", doc => doc.Frames.ForEach(fr => fr.DurationMs = ms));
                 return $"All {e.Document.Frames.Count} frames set to {ms} ms{clamped}.";
             }
             int f = Frame(e, frame);
-            e.EditDocument("Frame duration", doc => doc.Frames[f].DurationMs = ms);
+            e.EditMeta("Frame duration", doc => doc.Frames[f].DurationMs = ms);
             return $"Frame {f} set to {ms} ms{clamped}.";
         });
 }

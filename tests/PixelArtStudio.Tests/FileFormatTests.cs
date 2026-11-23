@@ -55,6 +55,85 @@ public sealed class FileFormatTests : IDisposable
         Assert.False(File.Exists(path + ".tmp"));
     }
 
+    private static int ManifestVersion(string path)
+    {
+        using var zip = System.IO.Compression.ZipFile.OpenRead(path);
+        using var stream = zip.GetEntry("manifest.json")!.Open();
+        using var json = JsonDocument.Parse(stream);
+        return json.RootElement.GetProperty("version").GetInt32();
+    }
+
+    [Fact]
+    public void ProjectFile_PlainSpritesStayVersion1()
+    {
+        string path = PathFor("plain.pxs");
+        ProjectFile.Save(CreateSample(), path);
+
+        Assert.Equal(1, ManifestVersion(path));
+        Assert.Empty(ProjectFile.Load(path).Cycles);
+    }
+
+    [Fact]
+    public void ProjectFile_Version2RoundTripsCycles()
+    {
+        var doc = CreateSample();
+        doc.Cycles.Add(new ColorCycle { Name = "Water", First = 2, Last = 6, StepMs = 120, Reverse = true });
+        doc.Cycles.Add(new ColorCycle { Name = "Lava", First = 8, Last = 9, Enabled = false });
+        string path = PathFor("cycles.pxs");
+
+        ProjectFile.Save(doc, path);
+        var loaded = ProjectFile.Load(path);
+
+        Assert.Equal(2, ManifestVersion(path));
+        Assert.Equal(
+            doc.Cycles.Select(c => (c.Name, c.First, c.Last, c.StepMs, c.Reverse, c.Enabled)),
+            loaded.Cycles.Select(c => (c.Name, c.First, c.Last, c.StepMs, c.Reverse, c.Enabled)));
+    }
+
+    [Fact]
+    public void ProjectFile_LargeCanvasIsVersion2()
+    {
+        string path = PathFor("big.pxs");
+        ProjectFile.Save(SpriteDocument.Create(1500, 8), path);
+
+        Assert.Equal(2, ManifestVersion(path));
+        Assert.Equal(1500, ProjectFile.Load(path).Width);
+    }
+
+    [Fact]
+    public void Gif_BakedCyclesAddAFramePerStep()
+    {
+        const uint red = 0xFFFF0000, green = 0xFF00FF00, blue = 0xFF0000FF;
+        var doc = SpriteDocument.Create(4, 4);
+        doc.Palette = new Palette { Colors = { red, green, blue } };
+        doc.Cycles.Add(new ColorCycle { First = 0, Last = 2, StepMs = 100 });
+        doc.GetCel(0, 0).Set(0, 0, red);
+        string path = PathFor("baked.gif");
+
+        ImageExporter.Export(doc, path, new ExportOptions { Format = ExportFormat.Gif, BakeCycles = true }, out bool truncated);
+
+        Assert.False(truncated);
+        using var image = Image.Load<Bgra32>(path);
+        Assert.Equal(3, image.Frames.Count);
+        Assert.Equal(new[] { 10, 10, 10 }, image.Frames.Select(f => f.Metadata.GetGifMetadata().FrameDelay));
+        Assert.Equal(255, image.Frames[0][0, 0].R);   // red, then the colour from slot 2 (blue), then green
+        Assert.Equal(255, image.Frames[1][0, 0].B);
+        Assert.Equal(255, image.Frames[2][0, 0].G);
+    }
+
+    [Fact]
+    public void Export_WithoutBake_IgnoresCycles()
+    {
+        var doc = CreateSample();
+        doc.Cycles.Add(new ColorCycle { First = 0, Last = 3 });
+        string path = PathFor("plain.gif");
+
+        ImageExporter.Export(doc, path, new ExportOptions { Format = ExportFormat.Gif });
+
+        using var image = Image.Load<Bgra32>(path);
+        Assert.Equal(3, image.Frames.Count);
+    }
+
     [Fact]
     public void ProjectFile_CorruptFile_ThrowsInvalidData()
     {

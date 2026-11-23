@@ -8,7 +8,7 @@ public readonly record struct PaintOptions(int BrushSize = 1, bool MirrorX = fal
 /// <summary>Pixel drawing primitives. All operations ignore pixels outside the buffer or the clip.</summary>
 public static class Raster
 {
-    public const int MaxBrushSize = 8;
+    public const int MaxBrushSize = 64;
 
     /// <summary>Stamps the square brush centred on (x, y), plus its mirror images.</summary>
     public static void Plot(PixelBuffer target, int x, int y, uint color, in PaintOptions options)

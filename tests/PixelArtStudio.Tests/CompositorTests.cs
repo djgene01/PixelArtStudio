@@ -51,6 +51,38 @@ public class CompositorTests
     }
 
     [Fact]
+    public void FlattenScaled_ShrinksByWholeFactor()
+    {
+        var doc = SpriteDocument.Create(10, 4);
+        doc.GetCel(0, 0).Set(3, 3, 0xFFFF0000);
+        doc.GetCel(0, 0).Set(4, 3, 0xFF00FF00);
+
+        var small = Compositor.FlattenScaled(doc, 0, maxSide: 4);   // factor 3
+
+        Assert.Equal((4, 2), (small.Width, small.Height));
+        Assert.Equal(0xFFFF0000u, small.Get(1, 1));                 // samples (3, 3)
+        Assert.True(Compositor.Flatten(doc, 0).ContentEquals(Compositor.FlattenScaled(doc, 0, maxSide: 10)));
+    }
+
+    [Fact]
+    public void FlattenInto_ParallelMatchesSerial()
+    {
+        var doc = SpriteDocument.Create(600, 600);   // over the parallel threshold
+        doc.AddLayer(0);
+        doc.Layers[1].Opacity = 0.5;
+        var random = new Random(42);
+        foreach (var cel in doc.Frames[0].Cels)
+            for (int i = 0; i < cel.Pixels.Length; i += 7) cel.Pixels[i] = (uint)random.Next() | 0x80000000;
+
+        var parallel = Compositor.Flatten(doc, 0);
+        var serial = doc.NewCel();
+        for (int y = 0; y < doc.Height; y += 100)   // 600 x 100 bands stay under the threshold
+            Compositor.FlattenInto(serial, doc, 0, new RectI(0, y, doc.Width, 100));
+
+        Assert.True(parallel.ContentEquals(serial));
+    }
+
+    [Fact]
     public void Scale_RepeatsPixels()
     {
         var buf = new PixelBuffer(2, 1);

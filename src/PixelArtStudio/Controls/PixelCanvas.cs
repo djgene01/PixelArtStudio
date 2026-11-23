@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using PixelArtStudio.Core.Model;
 using PixelArtStudio.Tools;
 using PixelArtStudio.ViewModels;
@@ -10,32 +11,44 @@ using PixelArtStudio.ViewModels;
 namespace PixelArtStudio.Controls;
 
 /// <summary>
-/// Shows the active frame scaled by <see cref="Zoom"/> with nearest-neighbour sampling, over a checkerboard,
-/// with grid, onion skin, selection and brush overlays. Mouse input is converted to pixel coordinates and
-/// forwarded to the editor. Must be hosted in a <see cref="ScrollViewer"/> for panning.
+/// Shows the active frame scaled by <see cref="Zoom"/> (nearest-neighbour when enlarging, smoothed when shrinking),
+/// over a checkerboard, with pixel and tile grids, onion skin, selection and brush overlays. Mouse input is converted
+/// to pixel coordinates and forwarded to the editor. Must be hosted in a <see cref="ScrollViewer"/> for panning.
 /// </summary>
 public sealed class PixelCanvas : FrameworkElement
 {
     public static readonly DependencyProperty ZoomProperty = DependencyProperty.Register(
-        nameof(Zoom), typeof(int), typeof(PixelCanvas),
-        new FrameworkPropertyMetadata(8, FrameworkPropertyMetadataOptions.AffectsMeasure | FrameworkPropertyMetadataOptions.AffectsRender));
+        nameof(Zoom), typeof(double), typeof(PixelCanvas),
+        new FrameworkPropertyMetadata(8.0, FrameworkPropertyMetadataOptions.AffectsMeasure | FrameworkPropertyMetadataOptions.AffectsRender,
+            OnZoomChanged));
 
     public static readonly DependencyProperty ShowGridProperty = DependencyProperty.Register(
         nameof(ShowGrid), typeof(bool), typeof(PixelCanvas),
         new FrameworkPropertyMetadata(true, FrameworkPropertyMetadataOptions.AffectsRender));
 
+    public static readonly DependencyProperty TileGridSizeProperty = DependencyProperty.Register(
+        nameof(TileGridSize), typeof(int), typeof(PixelCanvas),
+        new FrameworkPropertyMetadata(0, FrameworkPropertyMetadataOptions.AffectsRender));
+
     private static readonly Brush CheckerBrush = CreateCheckerBrush();
     private static readonly Pen GridPen = Freeze(new Pen(new SolidColorBrush(Color.FromArgb(48, 128, 128, 128)), 1));
+    private static readonly Pen TilePen = Freeze(new Pen(new SolidColorBrush(Color.FromArgb(150, 96, 165, 250)), 1));
     private static readonly Pen MarqueeLight = Freeze(new Pen(Brushes.White, 1));
     private static readonly Pen MarqueeDark = Freeze(new Pen(Brushes.Black, 1) { DashStyle = new DashStyle([4, 4], 0) });
     private static readonly Pen HoverPen = Freeze(new Pen(new SolidColorBrush(Color.FromArgb(160, 255, 255, 255)), 1));
     private const double OnionOpacity = 0.3;
 
+    /// <summary>The pixel grid is drawn from this zoom up.</summary>
+    private const double MinGridZoom = 8;
+
+    /// <summary>Tile grid lines closer than this on screen are not drawn.</summary>
+    private const double MinTileSpacing = 4;
+
     private MainViewModel? _editor;
     private WriteableBitmap? _bitmap;
     private PixelBuffer? _composite;
-    private StreamGeometry? _grid;
-    private (int W, int H, int Zoom) _gridKey;
+    private ScrollViewer? _scroller;
+    private bool _zoomingAround;
 
     private bool _drawing;
     private MouseButton _drawButton;
@@ -55,11 +68,13 @@ public sealed class PixelCanvas : FrameworkElement
         Cursor = Cursors.Cross;
         RenderOptions.SetBitmapScalingMode(this, BitmapScalingMode.NearestNeighbor);
         RenderOptions.SetEdgeMode(this, EdgeMode.Aliased);
+        Loaded += (_, _) => AttachScroller();
+        Unloaded += (_, _) => DetachScroller();
     }
 
-    public int Zoom
+    public double Zoom
     {
-        get => (int)GetValue(ZoomProperty);
+        get => (double)GetValue(ZoomProperty);
         set => SetValue(ZoomProperty, value);
     }
 
@@ -67,6 +82,13 @@ public sealed class PixelCanvas : FrameworkElement
     {
         get => (bool)GetValue(ShowGridProperty);
         set => SetValue(ShowGridProperty, value);
+    }
+
+    /// <summary>Spacing of the tile grid in sprite pixels; 0 hides it.</summary>
+    public int TileGridSize
+    {
+        get => (int)GetValue(TileGridSizeProperty);
+        set => SetValue(TileGridSizeProperty, value);
     }
 
     /// <summary>Set by the host while the space bar is held, so left-drag pans.</summary>
@@ -96,6 +118,7 @@ public sealed class PixelCanvas : FrameworkElement
     {
         get
         {
+            if (_scroller != null) return _scroller;
             DependencyObject? node = this;
             while (node != null && node is not ScrollViewer) node = VisualTreeHelper.GetParent(node);
             return node as ScrollViewer;
@@ -106,23 +129,72 @@ public sealed class PixelCanvas : FrameworkElement
     public void ZoomAround(Point anchor, bool zoomIn)
     {
         if (_editor == null) return;
-        int oldZoom = Zoom;
-        int newZoom = zoomIn
-            ? MainViewModel.ZoomLevels.FirstOrDefault(z => z > oldZoom, MainViewModel.ZoomLevels[^1])
-            : MainViewModel.ZoomLevels.LastOrDefault(z => z < oldZoom, MainViewModel.ZoomLevels[0]);
-        if (newZoom == oldZoom) return;
+        double oldZoom = Zoom;
+        double newZoom = zoomIn
+            ? MainViewModel.ZoomLevels.FirstOrDefault(z => z > oldZoom + 1e-9, MainViewModel.ZoomLevels[^1])
+            : MainViewModel.ZoomLevels.LastOrDefault(z => z < oldZoom - 1e-9, MainViewModel.ZoomLevels[0]);
+        if (Math.Abs(newZoom - oldZoom) < 1e-9) return;
 
         var scroller = Scroller;
         var docPoint = new Point(anchor.X / oldZoom, anchor.Y / oldZoom);
         Point viewportBefore = scroller != null ? TranslatePoint(anchor, scroller) : default;
 
-        _editor.Zoom = newZoom;
+        _zoomingAround = true;
+        try
+        {
+            _editor.Zoom = newZoom;
+        }
+        finally
+        {
+            _zoomingAround = false;
+        }
         if (scroller == null) return;
         scroller.UpdateLayout();
         var viewportAfter = TranslatePoint(new Point(docPoint.X * Zoom, docPoint.Y * Zoom), scroller);
         scroller.ScrollToHorizontalOffset(scroller.HorizontalOffset + viewportAfter.X - viewportBefore.X);
         scroller.ScrollToVerticalOffset(scroller.VerticalOffset + viewportAfter.Y - viewportBefore.Y);
     }
+
+    /// <summary>Toolbar and keyboard zoom keep the document point at the centre of the view in place.</summary>
+    private static void OnZoomChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        var canvas = (PixelCanvas)d;
+        double oldZoom = (double)e.OldValue, newZoom = (double)e.NewValue;
+        RenderOptions.SetBitmapScalingMode(canvas, newZoom >= 1 ? BitmapScalingMode.NearestNeighbor : BitmapScalingMode.HighQuality);
+        if (canvas._zoomingAround || canvas.Scroller is not { } scroller || oldZoom <= 0 || !canvas.IsLoaded) return;
+
+        var centre = new Point(scroller.ViewportWidth / 2, scroller.ViewportHeight / 2);
+        var onCanvas = scroller.TranslatePoint(centre, canvas);
+        var docPoint = new Point(onCanvas.X / oldZoom, onCanvas.Y / oldZoom);
+        canvas.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
+        {
+            var after = canvas.TranslatePoint(new Point(docPoint.X * canvas.Zoom, docPoint.Y * canvas.Zoom), scroller);
+            scroller.ScrollToHorizontalOffset(scroller.HorizontalOffset + after.X - centre.X);
+            scroller.ScrollToVerticalOffset(scroller.VerticalOffset + after.Y - centre.Y);
+        });
+    }
+
+    private void AttachScroller()
+    {
+        DetachScroller();
+        _scroller = Scroller;
+        if (_scroller != null) _scroller.ScrollChanged += OnScrollChanged;
+    }
+
+    private void DetachScroller()
+    {
+        if (_scroller != null) _scroller.ScrollChanged -= OnScrollChanged;
+        _scroller = null;
+    }
+
+    /// <summary>Grids are drawn for the visible area only, so they must follow scrolling.</summary>
+    private void OnScrollChanged(object sender, ScrollChangedEventArgs e)
+    {
+        if (GridVisible || TileGridVisible) InvalidateVisual();
+    }
+
+    private bool GridVisible => ShowGrid && Zoom >= MinGridZoom;
+    private bool TileGridVisible => TileGridSize > 0 && TileGridSize * Zoom >= MinTileSpacing;
 
     // ---- Rendering ----
 
@@ -157,7 +229,7 @@ public sealed class PixelCanvas : FrameworkElement
     protected override void OnRender(DrawingContext dc)
     {
         if (_editor == null || _bitmap == null) return;
-        int zoom = Zoom;
+        double zoom = Zoom;
         var doc = _editor.Document;
         var rect = new Rect(0, 0, doc.Width * zoom, doc.Height * zoom);
 
@@ -171,7 +243,12 @@ public sealed class PixelCanvas : FrameworkElement
             dc.Pop();
         }
 
-        if (ShowGrid && zoom >= 8) dc.DrawGeometry(null, GridPen, GetGrid(doc.Width, doc.Height, zoom));
+        if (GridVisible || TileGridVisible)
+        {
+            var visible = VisiblePixels(doc.Width, doc.Height, zoom);
+            if (GridVisible) dc.DrawGeometry(null, GridPen, BuildGrid(visible, 1, doc.Width, doc.Height, zoom));
+            if (TileGridVisible) dc.DrawGeometry(null, TilePen, BuildGrid(visible, TileGridSize, doc.Width, doc.Height, zoom));
+        }
 
         if (_editor.Selection is { } sel)
         {
@@ -184,30 +261,46 @@ public sealed class PixelCanvas : FrameworkElement
         {
             int size = _editor.BrushSize;
             int left = h.X - (size - 1) / 2, top = h.Y - (size - 1) / 2;
-            dc.DrawRectangle(null, HoverPen, new Rect(left * zoom + 0.5, top * zoom + 0.5, size * zoom - 1, size * zoom - 1));
+            dc.DrawRectangle(null, HoverPen, new Rect(left * zoom + 0.5, top * zoom + 0.5, Math.Max(0, size * zoom - 1), Math.Max(0, size * zoom - 1)));
         }
     }
 
-    private StreamGeometry GetGrid(int width, int height, int zoom)
+    /// <summary>The sprite pixels currently on screen (the whole sprite when not in a scroll viewer).</summary>
+    private RectI VisiblePixels(int width, int height, double zoom)
     {
-        if (_grid != null && _gridKey == (width, height, zoom)) return _grid;
+        if (Scroller is not { } scroller || scroller.ViewportWidth <= 0) return new RectI(0, 0, width, height);
+        var topLeft = scroller.TranslatePoint(new Point(0, 0), this);
+        var bottomRight = scroller.TranslatePoint(new Point(scroller.ViewportWidth, scroller.ViewportHeight), this);
+        int left = Math.Max(0, (int)Math.Floor(topLeft.X / zoom));
+        int top = Math.Max(0, (int)Math.Floor(topLeft.Y / zoom));
+        int right = Math.Min(width, (int)Math.Ceiling(bottomRight.X / zoom) + 1);
+        int bottom = Math.Min(height, (int)Math.Ceiling(bottomRight.Y / zoom) + 1);
+        return new RectI(left, top, Math.Max(0, right - left), Math.Max(0, bottom - top));
+    }
+
+    /// <summary>Grid lines every <paramref name="step"/> pixels, limited to the <paramref name="visible"/> area.</summary>
+    private static StreamGeometry BuildGrid(RectI visible, int step, int width, int height, double zoom)
+    {
         var geometry = new StreamGeometry();
         using (var ctx = geometry.Open())
         {
-            for (int x = 1; x < width; x++)
+            double top = visible.Y * zoom, bottom = visible.Bottom * zoom;
+            double left = visible.X * zoom, right = visible.Right * zoom;
+            int firstX = Math.Max(step, (visible.X + step - 1) / step * step);
+            for (int x = firstX; x <= visible.Right && x < width; x += step)
             {
-                ctx.BeginFigure(new Point(x * zoom + 0.5, 0), false, false);
-                ctx.LineTo(new Point(x * zoom + 0.5, height * zoom), true, false);
+                ctx.BeginFigure(new Point(x * zoom + 0.5, top), false, false);
+                ctx.LineTo(new Point(x * zoom + 0.5, bottom), true, false);
             }
-            for (int y = 1; y < height; y++)
+            int firstY = Math.Max(step, (visible.Y + step - 1) / step * step);
+            for (int y = firstY; y <= visible.Bottom && y < height; y += step)
             {
-                ctx.BeginFigure(new Point(0, y * zoom + 0.5), false, false);
-                ctx.LineTo(new Point(width * zoom, y * zoom + 0.5), true, false);
+                ctx.BeginFigure(new Point(left, y * zoom + 0.5), false, false);
+                ctx.LineTo(new Point(right, y * zoom + 0.5), true, false);
             }
         }
         geometry.Freeze();
-        _gridKey = (width, height, zoom);
-        return _grid = geometry;
+        return geometry;
     }
 
     // ---- Input ----

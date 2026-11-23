@@ -26,6 +26,11 @@ public static class McpHost
         or view_animation, then save (.pxs project) and/or export (PNG, GIF, sprite sheet...).
         For animations, build one frame, then add_frame with duplicate_of and adjust it (shift_cel, draw).
         Use set_active to show the user the frame you are working on.
+        Canvases go up to 4096x4096. On big canvases, draw in parts and check detail with view_frame's x, y, width
+        and height region; the whole frame is shrunk to fit 2048 px.
+        Colour cycling (palette-swap animation): paint with exact palette colours from a contiguous range of palette
+        slots (get_state lists them), then add_color_cycle over that range. Check it with view_frame cycle_time_ms
+        and export with bake_cycles.
         """;
 
     /// <summary>Starts the server. Pass port 0 to pick a free port; the bound address is in <c>app.Urls</c>.</summary>

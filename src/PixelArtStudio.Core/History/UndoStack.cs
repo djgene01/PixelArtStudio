@@ -2,8 +2,11 @@ using PixelArtStudio.Core.Model;
 
 namespace PixelArtStudio.Core.History;
 
-/// <summary>Bounded undo/redo history that also tracks whether the document changed since the last save.</summary>
-public sealed class UndoStack(int capacity = 100)
+/// <summary>
+/// Undo/redo history bounded by entry count and by memory, that also tracks whether the document changed since
+/// the last save. The newest entry is always kept, even if it alone exceeds the byte budget.
+/// </summary>
+public sealed class UndoStack(int capacity = 100, long maxBytes = 768L << 20)
 {
     private readonly List<IUndoEntry> _entries = [];
     private int _position;          // number of applied entries
@@ -12,6 +15,8 @@ public sealed class UndoStack(int capacity = 100)
     public event EventHandler? Changed;
 
     public int Capacity { get; } = Math.Max(1, capacity);
+    public long MaxBytes { get; } = Math.Max(0, maxBytes);
+    public long TotalBytes => _entries.Sum(e => e.SizeBytes);
     public int Count => _entries.Count;
     public bool CanUndo => _position > 0;
     public bool CanRedo => _position < _entries.Count;
@@ -38,13 +43,20 @@ public sealed class UndoStack(int capacity = 100)
 
         _entries.Add(entry);
         _position++;
-        if (_entries.Count > Capacity)
-        {
-            _entries.RemoveAt(0);
-            _position--;
-            _savedPosition = _savedPosition > 0 ? _savedPosition - 1 : -1;
-        }
+        if (_entries.Count > Capacity) DropOldest();
+        long total = TotalBytes;
+        while (total > MaxBytes && _entries.Count > 1) total -= DropOldest();
         OnChanged();
+    }
+
+    /// <summary>Removes the oldest entry and returns its size.</summary>
+    private long DropOldest()
+    {
+        long size = _entries[0].SizeBytes;
+        _entries.RemoveAt(0);
+        _position--;
+        _savedPosition = _savedPosition > 0 ? _savedPosition - 1 : -1;
+        return size;
     }
 
     public bool Undo(SpriteDocument doc)

@@ -54,7 +54,7 @@ public sealed class DrawOp
     public bool? Contiguous { get; set; }
 
     [JsonPropertyName("brush_size")]
-    [Description("pixels/line/outlines: square brush size 1-8. Default 1.")]
+    [Description("pixels/line/outlines: square brush size 1-64. Default 1.")]
     public int? BrushSize { get; set; }
 }
 

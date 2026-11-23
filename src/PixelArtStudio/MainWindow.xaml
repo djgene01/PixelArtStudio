@@ -11,7 +11,10 @@
         <local:EnumEqualsConverter x:Key="EnumEq" />
         <local:BoolToVisibleConverter x:Key="BoolToVisible" />
 
-        <!-- A colour square over a checkerboard, so transparency is visible. -->
+        <!--
+            A colour square over a checkerboard, so transparency is visible. The data context is a SwatchViewModel:
+            selected swatches get an accent frame, and swatches in a colour cycle a small corner marker.
+        -->
         <Style x:Key="SwatchButton" TargetType="Button">
             <Setter Property="Width" Value="22" />
             <Setter Property="Height" Value="22" />
@@ -20,14 +23,25 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="Frame" Background="{StaticResource SwatchChecker}"
-                                BorderBrush="{StaticResource PanelBorder}" BorderThickness="1">
-                            <Border Background="{TemplateBinding Background}" />
-                        </Border>
+                        <Grid>
+                            <Border x:Name="Frame" Background="{StaticResource SwatchChecker}"
+                                    BorderBrush="{StaticResource PanelBorder}" BorderThickness="1">
+                                <Border Background="{TemplateBinding Background}" />
+                            </Border>
+                            <Border x:Name="CycleMark" Width="7" Height="7" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                    Margin="0,0,2,2" Background="White" BorderBrush="Black" BorderThickness="1" Visibility="Collapsed" />
+                        </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="Frame" Property="BorderBrush" Value="White" />
                             </Trigger>
+                            <DataTrigger Binding="{Binding InCycle}" Value="True">
+                                <Setter TargetName="CycleMark" Property="Visibility" Value="Visible" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                <Setter TargetName="Frame" Property="BorderBrush" Value="{StaticResource ActiveFrameBorder}" />
+                                <Setter TargetName="Frame" Property="BorderThickness" Value="2" />
+                            </DataTrigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
@@ -93,15 +107,27 @@
                 <Separator />
                 <MenuItem Header="_Previous Frame" Command="{Binding PreviousFrameCommand}" InputGestureText="," />
                 <MenuItem Header="Ne_xt Frame" Command="{Binding NextFrameCommand}" InputGestureText="." />
-                <MenuItem Header="P_lay / Pause" Command="{Binding TogglePlayCommand}" />
+                <MenuItem Header="P_lay / Pause" Command="{Binding TogglePlayCommand}" InputGestureText="P, F5" />
             </MenuItem>
             <MenuItem Header="_View">
                 <MenuItem Header="Zoom _In" Command="{Binding ZoomInCommand}" InputGestureText="Ctrl++" />
                 <MenuItem Header="Zoom _Out" Command="{Binding ZoomOutCommand}" InputGestureText="Ctrl+-" />
                 <MenuItem Header="_Fit" Command="{Binding ZoomFitCommand}" InputGestureText="Ctrl+0" />
+                <MenuItem Header="_Actual Size" Command="{Binding ZoomActualCommand}" InputGestureText="Ctrl+1" />
                 <Separator />
-                <MenuItem Header="Pixel _Grid" IsCheckable="True" IsChecked="{Binding ShowGrid}" />
+                <MenuItem Header="Pixel _Grid" IsCheckable="True" IsChecked="{Binding ShowGrid}" InputGestureText="Ctrl+G" />
+                <MenuItem Header="_Tile Grid">
+                    <MenuItem Header="_Off" Command="{Binding SetTileGridCommand}" CommandParameter="0"
+                              IsChecked="{Binding TileGridSize, Mode=OneWay, Converter={StaticResource EnumEq}, ConverterParameter=0}" />
+                    <MenuItem Header="_8 x 8" Command="{Binding SetTileGridCommand}" CommandParameter="8"
+                              IsChecked="{Binding TileGridSize, Mode=OneWay, Converter={StaticResource EnumEq}, ConverterParameter=8}" />
+                    <MenuItem Header="_16 x 16" Command="{Binding SetTileGridCommand}" CommandParameter="16"
+                              IsChecked="{Binding TileGridSize, Mode=OneWay, Converter={StaticResource EnumEq}, ConverterParameter=16}" />
+                    <MenuItem Header="_32 x 32" Command="{Binding SetTileGridCommand}" CommandParameter="32"
+                              IsChecked="{Binding TileGridSize, Mode=OneWay, Converter={StaticResource EnumEq}, ConverterParameter=32}" />
+                </MenuItem>
                 <MenuItem Header="_Onion Skin" IsCheckable="True" IsChecked="{Binding OnionSkin}" />
+                <MenuItem Header="_Colour Cycling" IsCheckable="True" IsChecked="{Binding CyclePreview}" InputGestureText="F6" />
             </MenuItem>
         </Menu>
 
@@ -117,9 +143,12 @@
                 <Button Content="−" Command="{Binding ZoomOutCommand}" Style="{StaticResource SmallButton}" ToolTip="Zoom out (Ctrl+wheel)" />
                 <TextBlock Text="{Binding ZoomText}" VerticalAlignment="Center" MinWidth="52" TextAlignment="Center" Margin="0,0,4,4" />
                 <Button Content="+" Command="{Binding ZoomInCommand}" Style="{StaticResource SmallButton}" ToolTip="Zoom in (Ctrl+wheel)" />
-                <Button Content="Fit" Command="{Binding ZoomFitCommand}" Style="{StaticResource SmallButton}" ToolTip="Fit to window (Ctrl+0)" Margin="0,0,16,4" />
-                <ToggleButton Content="Grid" IsChecked="{Binding ShowGrid}" Style="{StaticResource SmallToggle}" ToolTip="Pixel grid (shown from 800% zoom)" />
+                <Button Content="Fit" Command="{Binding ZoomFitCommand}" Style="{StaticResource SmallButton}" ToolTip="Fit to window (Ctrl+0)" />
+                <Button Content="100%" Command="{Binding ZoomActualCommand}" Style="{StaticResource SmallButton}" ToolTip="Actual size (Ctrl+1)" Margin="0,0,16,4" />
+                <ToggleButton Content="Grid" IsChecked="{Binding ShowGrid}" Style="{StaticResource SmallToggle}" ToolTip="Pixel grid, shown from 800% zoom (Ctrl+G)" />
                 <ToggleButton Content="Onion skin" IsChecked="{Binding OnionSkin}" Style="{StaticResource SmallToggle}" ToolTip="Show the previous and next frames faintly" />
+                <ToggleButton Content="Colour cycling" IsChecked="{Binding CyclePreview}" Style="{StaticResource SmallToggle}"
+                              ToolTip="Animate the palette colour cycles on the canvas (F6)" />
             </WrapPanel>
         </Border>
 
@@ -131,7 +160,8 @@
             <StatusBarItem HorizontalAlignment="Right">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="Working..." Margin="0,0,16,0" Visibility="{Binding IsBusy, Converter={StaticResource BoolToVisible}}" />
-                    <TextBlock Text="{Binding CursorText}" MinWidth="80" />
+                    <TextBlock Text="{Binding CursorText}" MinWidth="140" />
+                    <TextBlock Text="{Binding SelectionText}" Margin="16,0,0,0" />
                     <TextBlock Text="{Binding SizeText}" Margin="16,0,0,0" />
                     <TextBlock Text="{Binding FrameText}" Margin="16,0,0,0" />
                     <TextBlock Text="{Binding ZoomText}" Margin="16,0,0,0" />
@@ -151,7 +181,7 @@
                     <Button Content="◀" Command="{Binding MoveFrameLeftCommand}" Style="{StaticResource SmallButton}" ToolTip="Move frame left" />
                     <Button Content="▶" Command="{Binding MoveFrameRightCommand}" Style="{StaticResource SmallButton}" ToolTip="Move frame right" Margin="0,0,16,4" />
                     <ToggleButton Content="Play" IsChecked="{Binding IsPlaying, Mode=OneWay}" Command="{Binding TogglePlayCommand}"
-                                  Style="{StaticResource SmallToggle}" ToolTip="Play or pause the animation on the canvas" />
+                                  Style="{StaticResource SmallToggle}" ToolTip="Play or pause the animation on the canvas (P or F5)" />
                     <ToggleButton Content="Onion skin" IsChecked="{Binding OnionSkin}" Style="{StaticResource SmallToggle}" Margin="0,0,16,4" />
                     <TextBlock Text="Duration" VerticalAlignment="Center" Margin="0,0,6,4" />
                     <TextBox Text="{Binding ActiveFrameDuration}" Width="64" Style="{StaticResource CompactTextBox}" Margin="0,0,4,4"
@@ -173,13 +203,20 @@
                     <ListBox.ItemTemplate>
                         <DataTemplate DataType="{x:Type vm:FrameViewModel}">
                             <StackPanel>
-                                <Border Width="64" Height="64" Background="{StaticResource SwatchChecker}">
-                                    <Image Source="{Binding Thumbnail}" Stretch="Uniform" RenderOptions.BitmapScalingMode="NearestNeighbor" />
+                                <Border x:Name="ThumbFrame" BorderThickness="2" BorderBrush="Transparent">
+                                    <Border Width="64" Height="64" Background="{StaticResource SwatchChecker}">
+                                        <Image Source="{Binding Thumbnail}" Stretch="Uniform" RenderOptions.BitmapScalingMode="NearestNeighbor" />
+                                    </Border>
                                 </Border>
                                 <TextBlock HorizontalAlignment="Center" Margin="0,2,0,0" FontSize="11">
                                     <Run Text="{Binding Number, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding DurationMs, Mode=OneWay}" /><Run Text="ms" />
                                 </TextBlock>
                             </StackPanel>
+                            <DataTemplate.Triggers>
+                                <DataTrigger Binding="{Binding IsActive}" Value="True">
+                                    <Setter TargetName="ThumbFrame" Property="BorderBrush" Value="{StaticResource ActiveFrameBorder}" />
+                                </DataTrigger>
+                            </DataTemplate.Triggers>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>
@@ -211,7 +248,7 @@
                     <TextBlock Style="{StaticResource SectionHeader}">
                         <Run Text="Brush size: " /><Run Text="{Binding BrushSize, Mode=OneWay}" />
                     </TextBlock>
-                    <Slider Minimum="1" Maximum="8" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding BrushSize}"
+                    <Slider Minimum="1" Maximum="64" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding BrushSize}"
                             ToolTip="Brush size ([ and ])" />
 
                     <TextBlock Text="Options" Style="{StaticResource SectionHeader}" />
@@ -285,7 +322,8 @@
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate DataType="{x:Type vm:SwatchViewModel}">
-                                <Button Style="{StaticResource SwatchButton}" Background="{Binding Brush}" ToolTip="{Binding Hex}"
+                                <Button Style="{StaticResource SwatchButton}" Background="{Binding Brush}" ToolTip="{Binding ToolTip}"
+                                        AutomationProperties.Name="{Binding Hex}"
                                         Command="{Binding DataContext.PickSwatchCommand, ElementName=PaletteItems}" CommandParameter="{Binding}">
                                     <Button.InputBindings>
                                         <MouseBinding Gesture="RightClick"
@@ -298,10 +336,56 @@
                     </ItemsControl>
                     <WrapPanel Margin="0,4,0,0">
                         <Button Content="Add" Command="{Binding AddToPaletteCommand}" Style="{StaticResource SmallButton}" ToolTip="Add the primary colour" />
-                        <Button Content="Remove" Command="{Binding RemoveFromPaletteCommand}" Style="{StaticResource SmallButton}" ToolTip="Remove the primary colour" />
+                        <Button Content="Remove" Command="{Binding RemoveFromPaletteCommand}" Style="{StaticResource SmallButton}" ToolTip="Remove the selected swatch" />
+                        <Button Content="Replace" Command="{Binding ReplaceSwatchCommand}" Style="{StaticResource SmallButton}"
+                                ToolTip="Set the selected swatch to the primary colour (a palette swap)" />
+                        <Button Content="◀" Command="{Binding MoveSwatchLeftCommand}" Style="{StaticResource SmallButton}" ToolTip="Move the selected swatch left" />
+                        <Button Content="▶" Command="{Binding MoveSwatchRightCommand}" Style="{StaticResource SmallButton}" ToolTip="Move the selected swatch right" />
                         <Button Content="Load" Command="{Binding LoadPaletteCommand}" Style="{StaticResource SmallButton}" ToolTip="Load a .hex or .gpl palette" />
                         <Button Content="Save" Command="{Binding SavePaletteCommand}" Style="{StaticResource SmallButton}" ToolTip="Save as .hex or .gpl" />
                         <Button Content="Reset" Command="{Binding ResetPaletteCommand}" Style="{StaticResource SmallButton}" ToolTip="PICO-8 + DawnBringer 32" />
+                    </WrapPanel>
+                    <CheckBox Content="Recolour pixels" IsChecked="{Binding RecolourPixels}" Margin="0,2,0,0"
+                              ToolTip="Replace also changes every pixel of the old colour, in all frames and layers" />
+
+                    <TextBlock Text="Colour cycles" Style="{StaticResource SectionHeader}" />
+                    <TextBlock Style="{StaticResource HintText}" TextWrapping="Wrap" Margin="0,0,0,6"
+                               Text="Shift+click swatches to select a range, then add a cycle. Pixels painted in those exact colours rotate through the range." />
+                    <ListBox ItemsSource="{Binding Cycles}" SelectedItem="{Binding SelectedCycle}" MaxHeight="200"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                <EventSetter Event="GotKeyboardFocus" Handler="OnLayerItemFocus" />
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:CycleViewModel}">
+                                <StackPanel>
+                                    <DockPanel>
+                                        <CheckBox DockPanel.Dock="Left" IsChecked="{Binding Enabled}" ToolTip="Enabled" MinWidth="0" VerticalAlignment="Center" />
+                                        <TextBlock DockPanel.Dock="Right" Text="{Binding RangeText}" VerticalAlignment="Center"
+                                                   Foreground="{StaticResource DimText}" FontSize="11" />
+                                        <TextBox Text="{Binding Name}" Background="Transparent" BorderThickness="0" MinHeight="0" Padding="2"
+                                                 VerticalAlignment="Center" ToolTip="Click to rename" />
+                                    </DockPanel>
+                                    <StackPanel Orientation="Horizontal" Margin="28,2,0,2">
+                                        <TextBlock Text="Step" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{StaticResource DimText}" />
+                                        <TextBox Text="{Binding StepMs}" Width="56" Style="{StaticResource CompactTextBox}"
+                                                 ToolTip="Milliseconds per step, 20 to 10000" />
+                                        <TextBlock Text="ms" VerticalAlignment="Center" Margin="4,0,12,0" Foreground="{StaticResource DimText}" />
+                                        <CheckBox Content="Reverse" IsChecked="{Binding Reverse}" MinWidth="0" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                    <WrapPanel Margin="0,6,0,0">
+                        <Button Content="Add from selection" Command="{Binding AddCycleFromSelectionCommand}" Style="{StaticResource SmallButton}"
+                                ToolTip="Add a colour cycle over the selected swatches" />
+                        <Button Content="Delete" Command="{Binding DeleteCycleCommand}" Style="{StaticResource SmallButton}" ToolTip="Delete the selected cycle" />
+                        <ToggleButton Content="Play cycles" IsChecked="{Binding CyclePreview}" Style="{StaticResource SmallToggle}"
+                                      ToolTip="Animate the colour cycles on the canvas (F6)" />
                     </WrapPanel>
 
                     <TextBlock Text="Layers" Style="{StaticResource SectionHeader}" />
@@ -350,9 +434,10 @@
 
         <!-- Canvas -->
         <ScrollViewer x:Name="CanvasScroller" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
-                      Background="{StaticResource WorkspaceBackground}" PreviewMouseWheel="OnCanvasWheel" Focusable="False">
+                      Background="{StaticResource WorkspaceBackground}" PreviewMouseWheel="OnCanvasWheel" Focusable="False"
+                      SizeChanged="OnCanvasScrollerSizeChanged">
             <Grid Margin="48" HorizontalAlignment="Center" VerticalAlignment="Center">
-                <controls:PixelCanvas x:Name="PixelView" Zoom="{Binding Zoom}" ShowGrid="{Binding ShowGrid}" />
+                <controls:PixelCanvas x:Name="PixelView" Zoom="{Binding Zoom}" ShowGrid="{Binding ShowGrid}" TileGridSize="{Binding TileGridSize}" />
             </Grid>
         </ScrollViewer>
     </DockPanel>

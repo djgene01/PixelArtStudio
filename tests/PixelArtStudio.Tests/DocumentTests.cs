@@ -84,6 +84,84 @@ public class DocumentTests
     }
 
     [Fact]
+    public void MaxSize_Is4096()
+    {
+        var doc = SpriteDocument.Create(SpriteDocument.MaxSize, SpriteDocument.MaxSize);
+        Assert.Equal((4096, 4096), (doc.Width, doc.Height));
+        Assert.Throws<ArgumentOutOfRangeException>(() => SpriteDocument.Create(4097, 1));
+    }
+
+    [Fact]
+    public void FitsBudget_CountsEveryCel()
+    {
+        Assert.True(SpriteDocument.FitsBudget(4096, 4096, 4, 8));       // 512M pixels exactly
+        Assert.False(SpriteDocument.FitsBudget(4096, 4096, 4, 9));
+        Assert.True(SpriteDocument.FitsBudget(64, 64, 10, 1000));
+    }
+
+    [Fact]
+    public void ReplaceColor_ChangesEveryCelAndCountsPixels()
+    {
+        var doc = SpriteDocument.Create(3, 3);
+        doc.AddFrame(0);
+        doc.AddLayer(0);
+        doc.GetCel(0, 0).Set(0, 0, 0xFFFF0000);
+        doc.GetCel(1, 1).Set(2, 2, 0xFFFF0000);
+        doc.GetCel(1, 0).Set(1, 1, 0xFF00FF00);
+
+        Assert.Equal(2, doc.ReplaceColor(0xFFFF0000, 0xFF0000FF));
+        Assert.Equal(0xFF0000FFu, doc.GetCel(0, 0).Get(0, 0));
+        Assert.Equal(0xFF0000FFu, doc.GetCel(1, 1).Get(2, 2));
+        Assert.Equal(0xFF00FF00u, doc.GetCel(1, 0).Get(1, 1));
+        Assert.Equal(0, doc.ReplaceColor(0xFFFF0000, 0xFF0000FF));
+    }
+
+    [Fact]
+    public void NormalizeCycles_ClampsToPaletteAndDropsShortRanges()
+    {
+        var doc = SpriteDocument.Create(2, 2);
+        doc.Palette = new Palette { Colors = { 0xFF000000, 0xFF111111, 0xFF222222, 0xFF333333 } };
+        doc.Cycles.Add(new ColorCycle { First = 2, Last = 9 });   // clamped to 2-3
+        doc.Cycles.Add(new ColorCycle { First = 3, Last = 7 });   // only slot 3 left: dropped
+        doc.Cycles.Add(new ColorCycle { First = 1, Last = 0 });   // reversed: becomes 0-1
+
+        doc.NormalizeCycles();
+
+        Assert.Equal([(2, 3), (0, 1)], doc.Cycles.Select(c => (c.First, c.Last)));
+    }
+
+    [Fact]
+    public void Clone_CopiesCyclesDeeply()
+    {
+        var doc = SpriteDocument.Create(2, 2);
+        doc.Cycles.Add(new ColorCycle { First = 0, Last = 3, StepMs = 200 });
+
+        var copy = doc.Clone();
+        copy.Cycles[0].StepMs = 500;
+
+        Assert.Equal(200, doc.Cycles[0].StepMs);
+        var target = SpriteDocument.Create(1, 1);
+        target.CopyStateFrom(doc);
+        Assert.Equal((0, 3, 200), (target.Cycles[0].First, target.Cycles[0].Last, target.Cycles[0].StepMs));
+    }
+
+    [Fact]
+    public void PixelBuffer_DiffBoundsAndRegionCopy()
+    {
+        var a = new PixelBuffer(10, 10);
+        var b = a.Clone();
+        Assert.Null(a.DiffBounds(b));
+
+        b.Set(3, 4, 0xFFFFFFFF);
+        b.Set(7, 2, 0xFFFFFFFF);
+        Assert.Equal(new RectI(3, 2, 5, 3), a.DiffBounds(b));
+
+        a.CopyFrom(b, new RectI(0, 0, 5, 5));
+        Assert.Equal(0xFFFFFFFFu, a.Get(3, 4));
+        Assert.Equal(0u, a.Get(7, 2));
+    }
+
+    [Fact]
     public void Rotate90_SwapsSizeAndMovesPixels()
     {
         var doc = SpriteDocument.Create(3, 2);

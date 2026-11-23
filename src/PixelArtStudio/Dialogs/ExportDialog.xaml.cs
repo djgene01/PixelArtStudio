@@ -22,10 +22,12 @@ public partial class ExportDialog : Window
 
     private readonly int _frameCount;
     private readonly int _currentFrame;
+    private readonly bool _hasCycles;
 
-    public ExportDialog(int frameCount, int currentFrame)
+    /// <param name="hasCycles">The sprite has enabled colour cycles, so multi-frame formats can bake them.</param>
+    public ExportDialog(int frameCount, int currentFrame, bool hasCycles)
     {
-        (_frameCount, _currentFrame) = (frameCount, currentFrame);
+        (_frameCount, _currentFrame, _hasCycles) = (frameCount, currentFrame, hasCycles);
         InitializeComponent();
 
         foreach (var f in Formats) FormatBox.Items.Add(new ComboBoxItem { Content = f.Label, Tag = f.Format });
@@ -50,6 +52,7 @@ public partial class ExportDialog : Window
         RangePanel.Visibility = multiFrame ? Visibility.Visible : Visibility.Collapsed;
         SheetPanel.Visibility = format == ExportFormat.SpriteSheet ? Visibility.Visible : Visibility.Collapsed;
         LoopBox.Visibility = ImageExporter.IsAnimated(format) ? Visibility.Visible : Visibility.Collapsed;
+        BakePanel.Visibility = _hasCycles && multiFrame ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void OnOk(object sender, RoutedEventArgs e)
@@ -62,6 +65,7 @@ public partial class ExportDialog : Window
             CurrentFrame = _currentFrame,
             Loop = LoopBox.IsChecked == true,
             WriteJson = JsonBox.IsChecked == true,
+            BakeCycles = BakePanel.Visibility == Visibility.Visible && BakeBox.IsChecked == true,
         };
 
         if (RangePanel.Visibility == Visibility.Visible)

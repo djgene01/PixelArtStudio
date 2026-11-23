@@ -3,15 +3,22 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="New Sprite" SizeToContent="WidthAndHeight" ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
-    <StackPanel Margin="20" MinWidth="280">
+    <StackPanel Margin="20" MinWidth="300">
         <TextBlock Text="Preset" Style="{StaticResource FieldLabel}" />
         <ComboBox x:Name="PresetBox" SelectionChanged="OnPresetChanged" Margin="0,0,0,12">
-            <ComboBoxItem Content="16 x 16" Tag="16" />
-            <ComboBoxItem Content="32 x 32" Tag="32" />
-            <ComboBoxItem Content="48 x 48" Tag="48" />
-            <ComboBoxItem Content="64 x 64" Tag="64" />
-            <ComboBoxItem Content="128 x 128" Tag="128" />
-            <ComboBoxItem Content="256 x 256" Tag="256" />
+            <ComboBoxItem Content="16 x 16" Tag="16x16" />
+            <ComboBoxItem Content="32 x 32" Tag="32x32" />
+            <ComboBoxItem Content="48 x 48" Tag="48x48" />
+            <ComboBoxItem Content="64 x 64" Tag="64x64" />
+            <ComboBoxItem Content="128 x 128" Tag="128x128" />
+            <ComboBoxItem Content="256 x 256" Tag="256x256" />
+            <ComboBoxItem Content="512 x 512" Tag="512x512" />
+            <ComboBoxItem Content="1024 x 1024" Tag="1024x1024" />
+            <ComboBoxItem Content="2048 x 2048" Tag="2048x2048" />
+            <ComboBoxItem Content="4096 x 4096" Tag="4096x4096" />
+            <ComboBoxItem Content="320 x 200 (VGA mode 13h)" Tag="320x200" />
+            <ComboBoxItem Content="640 x 480" Tag="640x480" />
+            <ComboBoxItem Content="1280 x 720" Tag="1280x720" />
         </ComboBox>
         <Grid>
             <Grid.ColumnDefinitions>
@@ -21,14 +28,15 @@
             </Grid.ColumnDefinitions>
             <StackPanel>
                 <TextBlock Text="Width (px)" Style="{StaticResource FieldLabel}" />
-                <TextBox x:Name="WidthBox" />
+                <TextBox x:Name="WidthBox" TextChanged="OnSizeChanged" />
             </StackPanel>
             <StackPanel Grid.Column="2">
                 <TextBlock Text="Height (px)" Style="{StaticResource FieldLabel}" />
-                <TextBox x:Name="HeightBox" />
+                <TextBox x:Name="HeightBox" TextChanged="OnSizeChanged" />
             </StackPanel>
         </Grid>
-        <TextBlock Text="1 to 1024 pixels per side." Style="{StaticResource HintText}" Margin="0,6,0,0" />
+        <TextBlock x:Name="LimitHint" Style="{StaticResource HintText}" Margin="0,6,0,0" />
+        <TextBlock x:Name="MemoryHint" Style="{StaticResource HintText}" Margin="0,2,0,0" />
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
             <Button Content="Create" IsDefault="True" Click="OnOk" MinWidth="88" Style="{StaticResource PrimaryButton}" />
             <Button Content="Cancel" IsCancel="True" MinWidth="88" Margin="8,0,0,0" />

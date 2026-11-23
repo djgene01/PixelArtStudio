@@ -18,6 +18,7 @@ public sealed class LayerTools(IStudioSession session)
             int count = e.Document.Layers.Count;
             int under = below is -1 ? -1 : Layer(e, below, "below");
             string? layerName = string.IsNullOrWhiteSpace(name) ? null : name.Trim();
+            CheckBudget(e.Document.Width, e.Document.Height, count + 1, e.Document.Frames.Count);
             int index = 0;
             e.EditDocument("Add layer", doc => index = doc.AddLayer(under, layerName));
             e.ActiveLayer = index;
@@ -31,6 +32,7 @@ public sealed class LayerTools(IStudioSession session)
         session.RunAsync(e =>
         {
             int l = Layer(e, layer);
+            CheckBudget(e.Document.Width, e.Document.Height, e.Document.Layers.Count + 1, e.Document.Frames.Count);
             int index = 0;
             e.EditDocument("Duplicate layer", doc => index = doc.DuplicateLayer(l));
             e.ActiveLayer = index;
@@ -95,7 +97,7 @@ public sealed class LayerTools(IStudioSession session)
         return session.RunAsync(e =>
         {
             int l = Layer(e, layer);
-            e.EditDocument("Layer properties", doc =>
+            e.EditMeta("Layer properties", doc =>
             {
                 var target = doc.Layers[l];
                 if (name != null) target.Name = name.Trim();
