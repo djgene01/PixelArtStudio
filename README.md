@@ -10,6 +10,14 @@ A WPF (.NET 10) editor for pixel art, sprites and sprite animations.
 
 Narrated by Pixel the Pixi. [Download the MP4](docs/promo.mp4).
 
+## Demo: Pixel Craft
+
+<video src="https://github.com/djgene01/PixelArtStudio/raw/main/docs/pixel-craft-demo.mp4" controls muted width="720">
+  Your viewer can't play embedded video. <a href="docs/pixel-craft-demo.mp4">Watch the demo (MP4)</a>.
+</video>
+
+A 30-second papercraft pop-up tour of pixel art drawn in PixelArtStudio by Claude through the MCP server: ten jungle dinosaur scenes, a six-scene space collection and a colour-cycling cyberpunk logo. [Download the MP4](docs/pixel-craft-demo.mp4).
+
 ## Features
 
 - **Drawing tools:** pencil, eraser, fill (contiguous or global), eyedropper, line, rectangle, ellipse (outline or filled), and rectangle select.
